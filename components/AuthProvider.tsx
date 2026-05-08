@@ -9,7 +9,7 @@ interface AuthContextValue {
   students: StudentRecord[];
   colleges: string[];
   login: (email: string, password: string, role: UserRole) => { success: boolean; message: string };
-  register: (name: string, email: string, password: string, college: string, role: UserRole) => { success: boolean; message: string };
+  register: (name: string, email: string, password: string, role: UserRole, college?: string) => { success: boolean; message: string };
   addCollege: (college: string) => { success: boolean; message: string };
   removeCollege: (college: string) => { success: boolean; message: string };
   logout: () => void;
@@ -61,12 +61,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { success: true, message: 'Login successful.' };
   };
 
-  const register = (name: string, email: string, password: string, college: string, role: UserRole) => {
+  const register = (name: string, email: string, password: string, role: UserRole, college?: string) => {
     const users = loadUsers();
     if (users.some((account) => account.email.toLowerCase() === email.toLowerCase())) {
       return { success: false, message: 'An account with this email already exists.' };
     }
-    const newUser: User = { name, email, password, college, role };
+    const newUser: User = { name, email, password, role };
+    if (college || role !== 'admin') {
+      newUser.college = college;
+    }
     const updated = [...users, newUser];
     persistUsers(updated);
     saveAuthEmail(newUser.email);

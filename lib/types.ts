@@ -4,7 +4,7 @@ export interface User {
   name: string;
   email: string;
   password: string;
-  college: string;
+  college?: string;
   role: UserRole;
 }
 

@@ -26,7 +26,7 @@ export default function StudentPage() {
       return;
     }
     if (user.college) {
-      setForm((prev) => ({ ...prev, college: user.college }));
+      setForm((prev) => ({ ...prev, college: user.college! }));
       return;
     }
     if (!form.college && colleges.length) {

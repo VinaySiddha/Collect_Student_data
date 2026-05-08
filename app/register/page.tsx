@@ -28,7 +28,7 @@ export default function RegisterPage() {
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const result = register(name, email, password, college, role);
+    const result = register(name, email, password, role, role === 'admin' ? undefined : college);
     setMessage(result.message);
     if (result.success) {
       router.push('/student');
@@ -111,7 +111,7 @@ export default function RegisterPage() {
                 <select
                   value={college}
                   onChange={(event) => setCollege(event.target.value)}
-                  required
+                  required={role !== 'admin'}
                   className="input-field w-full px-4 py-3 rounded-lg border border-slate-300 focus:border-cyan-400 focus:outline-none transition"
                 >
                   {colleges.length ? colleges.map((col) => (
