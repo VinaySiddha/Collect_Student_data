@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { FiMail, FiLock, FiLogIn } from 'react-icons/fi';
 
@@ -13,17 +13,19 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState<string | null>(null);
 
-  if (user) {
-    if (user.role === 'admin') {
-      router.push('/admin');
-    } else {
-      router.push('/student');
+  useEffect(() => {
+    if (user) {
+      if (user.role === 'admin') {
+        router.push('/admin');
+      } else {
+        router.push('/student');
+      }
     }
-  }
+  }, [user, router]);
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const result = login(email, password, 'faculty');
+    const result = await login(email, password, 'faculty');
     setMessage(result.message);
     if (result.success) {
       router.push('/student');

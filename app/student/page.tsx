@@ -52,7 +52,7 @@ export default function StudentPage() {
     reader.readAsDataURL(file);
   };
 
-  const createStudent = (event: React.FormEvent<HTMLFormElement>) => {
+  const createStudent = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const record: StudentRecord = {
       id: `${Date.now()}`,
@@ -67,7 +67,7 @@ export default function StudentPage() {
       createdBy: user?.name || user?.email || 'Unknown',
       createdAt: new Date().toISOString(),
     };
-    addStudent(record);
+    await addStudent(record);
     setNotice('Student record saved successfully.');
     setForm({ college: user?.college || colleges[0] || '', name: '', studentId: '', course: '', year: '', email: '', phone: '' });
     setPhotoPreview(null);
@@ -110,7 +110,7 @@ export default function StudentPage() {
           createdAt: new Date().toISOString(),
         } as StudentRecord;
       });
-      importStudents(mappedRecords);
+      await importStudents(mappedRecords);
       setNotice(`${mappedRecords.length} records imported successfully.`);
       setUploadFile(null);
     } catch (error) {

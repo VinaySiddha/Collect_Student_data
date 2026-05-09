@@ -44,9 +44,9 @@ export default function AdminPage() {
     }
   };
 
-  const handleLogin = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const result = login(email, password, 'admin');
+    const result = await login(email, password, 'admin');
     setMessage(result.message);
     if (result.success) {
       router.push('/admin');

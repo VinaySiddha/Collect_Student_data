@@ -22,13 +22,15 @@ export default function RegisterPage() {
     }
   }, [colleges, college]);
 
-  if (user) {
-    router.push('/student');
-  }
+  useEffect(() => {
+    if (user) {
+      router.push('/student');
+    }
+  }, [user, router]);
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const result = register(name, email, password, role, role === 'admin' ? undefined : college);
+    const result = await register(name, email, password, role, role === 'admin' ? undefined : college);
     setMessage(result.message);
     if (result.success) {
       router.push('/student');
