@@ -11,4 +11,13 @@ const pool = mysql.createPool({
   queueLimit: 0,
 });
 
-export default pool;
+// Singleton pattern for Next.js hot-reloading
+const globalForPool = global as unknown as { pool: typeof pool };
+
+if (process.env.NODE_ENV !== 'production') {
+  if (!globalForPool.pool) {
+    globalForPool.pool = pool;
+  }
+}
+
+export default process.env.NODE_ENV === 'production' ? pool : globalForPool.pool || pool;
