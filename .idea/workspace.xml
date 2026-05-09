@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="f9625ca2-d967-4b64-856e-f5a6b1cbdaea" name="Changes" comment="feat: migrate to MySQL backend with SHA-256 secure authentication&#10;- Transitioned data storage from localStorage to a remote MySQL database.&#10;- Implemented Next.js Server Actions for secure, server-side CRUD operations.&#10;- Added SHA-256 password hashing (salted with email) for enhanced security.&#10;- Refactored AuthProvider and UI components to handle asynchronous DB actions.&#10;- Fixed React rendering warnings by moving navigation logic into useEffect.&#10;- Added a standalone database connection test script and .env template." />
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="CopilotPersistence">
+    <persistenceIdMap>
+      <entry key="_C:/Users/vinay/Desktop/StudentData" value="3DTgFIONSnk9kMQueKJ7ZYXOGTf" />
+    </persistenceIdMap>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
+  "lastFilter": {
+    "state": "OPEN",
+    "assignee": "VinaySiddha"
+  }
+}]]></component>
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/VinaySiddha/Collect_Student_data.git",
+    "accountId": "af2f51be-5e78-4094-b15b-cc485882ad62"
+  }
+}]]></component>
+  <component name="HighlightingSettingsPerFile">
+    <setting file="file://$PROJECT_DIR$/node_modules/mysql2/typings/mysql/lib/protocol/packets/RowDataPacket.d.ts" root0="SKIP_INSPECTION" />
+  </component>
+  <component name="ProjectColorInfo"><![CDATA[{
+  "associatedIndex": 6
+}]]></component>
+  <component name="ProjectId" id="3DTgFIONSnk9kMQueKJ7ZYXOGTf" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+    <option name="showMembers" value="true" />
+    <option name="showVisibilityIcons" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
+    "dart.analysis.tool.window.visible": "false",
+    "git-widget-placeholder": "main",
+    "ignore.virus.scanning.warn.message": "true",
+    "junie.onboarding.icon.badge.shown": "true",
+    "kotlin-language-version-configured": "true",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.standard": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.standard": "",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "settings.editor.selected.configurable": "settings.javascript.linters.eslint",
+    "to.speed.mode.migration.done": "true",
+    "ts.external.directory.path": "C:\\Users\\vinay\\Desktop\\StudentData\\node_modules\\typescript\\lib"
+  }
+}]]></component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-jdk-9823dce3aa75-bf35d07a577b-intellij.indexing.shared.core-IU-252.28238.7" />
+        <option value="bundled-js-predefined-d6986cc7102b-a71380e98a7c-JavaScript-IU-252.28238.7" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="f9625ca2-d967-4b64-856e-f5a6b1cbdaea" name="Changes" comment="" />
+      <created>1778311369237</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1778311369237</updated>
+      <workItem from="1778311371002" duration="10010000" />
+    </task>
+    <task id="LOCAL-00001" summary="feat: migrate to MySQL backend with SHA-256 secure authentication&#10;- Transitioned data storage from localStorage to a remote MySQL database.&#10;- Implemented Next.js Server Actions for secure, server-side CRUD operations.&#10;- Added SHA-256 password hashing (salted with email) for enhanced security.&#10;- Refactored AuthProvider and UI components to handle asynchronous DB actions.&#10;- Fixed React rendering warnings by moving navigation logic into useEffect.&#10;- Added a standalone database connection test script and .env template.">
+      <option name="closed" value="true" />
+      <created>1778318681726</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1778318681728</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="feat: migrate to MySQL backend with SHA-256 secure authentication&#10;- Transitioned data storage from localStorage to a remote MySQL database.&#10;- Implemented Next.js Server Actions for secure, server-side CRUD operations.&#10;- Added SHA-256 password hashing (salted with email) for enhanced security.&#10;- Refactored AuthProvider and UI components to handle asynchronous DB actions.&#10;- Fixed React rendering warnings by moving navigation logic into useEffect.&#10;- Added a standalone database connection test script and .env template." />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: migrate to MySQL backend with SHA-256 secure authentication&#10;- Transitioned data storage from localStorage to a remote MySQL database.&#10;- Implemented Next.js Server Actions for secure, server-side CRUD operations.&#10;- Added SHA-256 password hashing (salted with email) for enhanced security.&#10;- Refactored AuthProvider and UI components to handle asynchronous DB actions.&#10;- Fixed React rendering warnings by moving navigation logic into useEffect.&#10;- Added a standalone database connection test script and .env template." />
+  </component>
+  <component name="XSLT-Support.FileAssociations.UIState">
+    <expand />
+    <select />
+  </component>
+  <component name="github-copilot-workspace">
+    <instructionFileLocations>
+      <option value=".github/instructions" />
+    </instructionFileLocations>
+    <promptFileLocations>
+      <option value=".github/prompts" />
+    </promptFileLocations>
+  </component>
+</project>
