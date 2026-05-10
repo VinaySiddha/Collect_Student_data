@@ -38,10 +38,10 @@ export default function RegisterPage() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-50 to-white px-6 py-12 text-slate-900 lg:px-10">
+    <main className="min-h-screen bg-gradient-to-br from-slate-50 to-white px-4 sm:px-6 py-10 sm:py-12 text-slate-900 lg:px-10">
       <div className="mx-auto max-w-4xl">
-        <div className="grid gap-8 lg:grid-cols-2 items-center">
-          {/* Left Side - Content with Images */}
+        <div className="grid gap-8 lg:grid-cols-2 items-start">
+          {/* Left Side — visible on large screens */}
           <div className="space-y-6 hidden lg:block">
             <div className="space-y-3">
               <div className="text-5xl font-bold text-green-600">🎓</div>
@@ -49,9 +49,8 @@ export default function RegisterPage() {
               <p className="text-lg text-slate-600">Create your account to manage student registrations, data collection, and printing services.</p>
             </div>
 
-            {/* Role Info Cards */}
             <div className="space-y-4 mt-8">
-              <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
                 <div className="flex gap-3">
                   <div className="text-2xl">👨‍💼</div>
                   <div>
@@ -62,7 +61,7 @@ export default function RegisterPage() {
                   </div>
                 </div>
               </div>
-              <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
+              <div className="p-4 bg-purple-50 rounded-xl border border-purple-200">
                 <div className="flex gap-3">
                   <div className="text-2xl">👨‍🏫</div>
                   <div>
@@ -75,7 +74,6 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            {/* Benefits */}
             <div className="space-y-3 pt-4 border-t border-slate-200">
               <div className="flex gap-3">
                 <div className="text-xl">✅</div>
@@ -92,18 +90,27 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          {/* Right Side - Form */}
-          <div className="rounded-[2rem] border border-slate-200/70 bg-white/90 p-10 shadow-glass backdrop-blur-xl">
-            <div className="mb-8 space-y-3">
-              <p className="text-sm uppercase tracking-[0.3em] text-cyan-600/90 flex items-center gap-2">
+          {/* Right Side — Form */}
+          <div className="rounded-2xl sm:rounded-[2rem] border border-slate-200/70 bg-white/90 p-5 sm:p-8 lg:p-10 shadow-xl backdrop-blur-xl">
+            {/* Mobile brand header */}
+            <div className="flex items-center gap-2 mb-5 lg:hidden">
+              <span className="text-2xl font-bold text-green-600">🎓</span>
+              <div>
+                <p className="font-bold text-green-600 leading-none">Gographic</p>
+                <p className="text-xs text-slate-400">College Registration</p>
+              </div>
+            </div>
+
+            <div className="mb-5 sm:mb-8 space-y-2 sm:space-y-3">
+              <p className="text-xs sm:text-sm uppercase tracking-[0.3em] text-green-600 flex items-center gap-2">
                 <FiUserCheck className="w-4 h-4" />
                 College Registration
               </p>
-              <h1 className="text-3xl font-semibold text-slate-900">Create Your Account</h1>
-              <p className="text-slate-600">Register once, then manage student details, data exports, and printing orders.</p>
+              <h1 className="text-2xl sm:text-3xl font-semibold text-slate-900">Create Your Account</h1>
+              <p className="text-slate-600 text-sm sm:text-base">Register once, then manage student details, data exports, and printing orders.</p>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
               {/* College/School */}
               <label className="block">
                 <span className="mb-2 flex items-center gap-2 text-sm text-slate-700 font-medium">
@@ -114,7 +121,7 @@ export default function RegisterPage() {
                   value={college}
                   onChange={(event) => setCollege(event.target.value)}
                   required={role !== 'admin'}
-                  className="input-field w-full px-4 py-3 rounded-lg border border-slate-300 focus:border-cyan-400 focus:outline-none transition"
+                  className="input-field"
                 >
                   {colleges.length ? colleges.map((col) => (
                     <option key={col} value={col}>{col}</option>
@@ -130,12 +137,12 @@ export default function RegisterPage() {
                   <FiUser className="w-4 h-4" />
                   Full Name
                 </span>
-                <input 
-                  value={name} 
-                  onChange={(event) => setName(event.target.value)} 
+                <input
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
                   placeholder="Enter your full name"
-                  required 
-                  className="input-field w-full px-4 py-3 rounded-lg border border-slate-300 focus:border-cyan-400 focus:outline-none transition"
+                  required
+                  className="input-field"
                 />
               </label>
 
@@ -145,13 +152,13 @@ export default function RegisterPage() {
                   <FiMail className="w-4 h-4" />
                   Email Address
                 </span>
-                <input 
-                  type="email" 
-                  value={email} 
-                  onChange={(event) => setEmail(event.target.value)} 
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
                   placeholder="Enter your email"
-                  required 
-                  className="input-field w-full px-4 py-3 rounded-lg border border-slate-300 focus:border-cyan-400 focus:outline-none transition"
+                  required
+                  className="input-field"
                 />
               </label>
 
@@ -161,13 +168,13 @@ export default function RegisterPage() {
                   <FiLock className="w-4 h-4" />
                   Password
                 </span>
-                <input 
-                  type="password" 
-                  value={password} 
-                  onChange={(event) => setPassword(event.target.value)} 
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
                   placeholder="Create a strong password"
-                  required 
-                  className="input-field w-full px-4 py-3 rounded-lg border border-slate-300 focus:border-cyan-400 focus:outline-none transition"
+                  required
+                  className="input-field"
                 />
               </label>
 
@@ -177,46 +184,46 @@ export default function RegisterPage() {
                   <FiSettings className="w-4 h-4" />
                   Select Your Role
                 </label>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
                     onClick={() => setRole('faculty')}
-                    className={`p-4 rounded-lg border-2 transition-all duration-300 flex flex-col items-center gap-2 ${
+                    className={`p-3 sm:p-4 rounded-xl border-2 transition-all duration-300 flex flex-col items-center gap-2 ${
                       role === 'faculty'
                         ? 'border-purple-500 bg-purple-50 text-purple-900'
                         : 'border-slate-300 bg-slate-50 text-slate-600 hover:border-purple-300'
                     }`}
                   >
                     <div className="text-2xl">👨‍🏫</div>
-                    <span className="text-sm font-semibold">College Faculty</span>
+                    <span className="text-xs sm:text-sm font-semibold">College Faculty</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setRole('admin')}
-                    className={`p-4 rounded-lg border-2 transition-all duration-300 flex flex-col items-center gap-2 ${
+                    className={`p-3 sm:p-4 rounded-xl border-2 transition-all duration-300 flex flex-col items-center gap-2 ${
                       role === 'admin'
                         ? 'border-blue-500 bg-blue-50 text-blue-900'
                         : 'border-slate-300 bg-slate-50 text-slate-600 hover:border-blue-300'
                     }`}
                   >
                     <div className="text-2xl">👨‍💼</div>
-                    <span className="text-sm font-semibold">College Admin</span>
+                    <span className="text-xs sm:text-sm font-semibold">College Admin</span>
                   </button>
                 </div>
               </div>
 
               {message ? <p className="text-sm text-emerald-600 bg-emerald-50 p-3 rounded-lg">{message}</p> : null}
-              <button 
-                type="submit" 
-                className="button-primary w-full flex items-center justify-center gap-2 bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-3 rounded-lg transition-all duration-300"
+              <button
+                type="submit"
+                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-green-600 px-6 py-3.5 text-sm font-bold text-white transition duration-300 hover:bg-green-700 hover:shadow-lg active:scale-[0.98]"
               >
                 <FiUserCheck className="w-5 h-5" />
                 Create Account
               </button>
             </form>
 
-            <div className="mt-8 text-center text-sm text-slate-600">
-              <p>Already have an account? <Link href="/login" className="text-cyan-600 hover:text-cyan-700 font-semibold">Login here</Link>.</p>
+            <div className="mt-6 sm:mt-8 text-center text-sm text-slate-600">
+              <p>Already have an account? <Link href="/login" className="text-green-600 hover:text-green-700 font-semibold">Login here</Link>.</p>
             </div>
           </div>
         </div>

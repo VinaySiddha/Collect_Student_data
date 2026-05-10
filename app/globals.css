@@ -7,6 +7,7 @@
 :root {
   color-scheme: light;
   --font-primary: 'Outfit', sans-serif;
+  --color-brand: #16a34a;
 }
 
 html {
@@ -16,8 +17,8 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
-  background: radial-gradient(circle at top left, rgba(56, 189, 248, 0.12), transparent 28%), 
-              radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.08), transparent 32%), 
+  background: radial-gradient(circle at top left, rgba(56, 189, 248, 0.12), transparent 28%),
+              radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.08), transparent 32%),
               #fcfdfe;
   color: #0f172a;
   font-family: var(--font-primary);
@@ -32,25 +33,27 @@ button, input, select, textarea {
 }
 
 ::selection {
-  background: rgba(6, 182, 212, 0.25);
+  background: rgba(22, 163, 74, 0.2);
   color: #0f172a;
 }
 
 @layer utilities {
   .glass-panel {
-    @apply rounded-[2.5rem] border border-slate-200/50 bg-white/70 backdrop-blur-xl shadow-2xl shadow-slate-200/50;
+    @apply rounded-2xl sm:rounded-[2.5rem] border border-slate-200/50 bg-white/70 backdrop-blur-xl shadow-2xl shadow-slate-200/50;
   }
   .input-field {
-    @apply w-full rounded-2xl border border-slate-200 bg-white/50 px-5 py-3.5 text-slate-900 outline-none transition duration-300 focus:border-cyan-500 focus:bg-white focus:ring-4 focus:ring-cyan-500/10;
+    @apply w-full rounded-xl border border-slate-200 bg-white/50 px-4 py-3 text-slate-900 outline-none transition duration-300 focus:border-green-500 focus:bg-white focus:ring-4 focus:ring-green-500/10;
   }
   .button-primary {
-    @apply inline-flex items-center justify-center rounded-2xl bg-slate-900 px-8 py-4 text-sm font-bold text-white transition duration-300 hover:bg-black hover:shadow-xl hover:shadow-slate-200 active:scale-[0.98];
+    @apply inline-flex items-center justify-center rounded-xl bg-slate-900 px-6 py-3.5 text-sm font-bold text-white transition duration-300 hover:bg-black hover:shadow-xl hover:shadow-slate-200 active:scale-[0.98];
   }
   .button-secondary {
-    @apply inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-8 py-4 text-sm font-bold text-slate-900 transition duration-300 hover:bg-slate-50 hover:shadow-lg active:scale-[0.98];
+    @apply inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-6 py-3.5 text-sm font-bold text-slate-900 transition duration-300 hover:bg-slate-50 hover:shadow-lg active:scale-[0.98];
+  }
+  .card-panel {
+    @apply rounded-2xl sm:rounded-[2rem] bg-white border border-slate-100 shadow-xl shadow-slate-200/40;
   }
 }
-
 
 .fade-in {
   animation: fadeIn 0.9s ease-out forwards;
@@ -66,3 +69,19 @@ button, input, select, textarea {
     transform: translateY(0);
   }
 }
+
+/* Custom scrollbar */
+.custom-scrollbar::-webkit-scrollbar { width: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 20px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.22); }
+
+/* Dark custom scrollbar (for dark panels) */
+.custom-scrollbar-dark::-webkit-scrollbar { width: 6px; }
+.custom-scrollbar-dark::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar-dark::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 20px; }
+.custom-scrollbar-dark::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+/* Admin spin animation */
+.animate-spin-slow { animation: spin 8s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
