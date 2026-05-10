@@ -1,13 +1,17 @@
-'use client';
+﻿'use client';
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
-import { FiHome, FiUserPlus, FiLogIn, FiLogOut, FiSettings, FiMenu, FiX, FiUser } from 'react-icons/fi';
+import { FiHome, FiLogIn, FiLogOut, FiSettings, FiMenu, FiX, FiUser } from 'react-icons/fi';
 
 export function Header() {
   const [isOpen, setIsOpen] = useState(false);
   const { user, logout } = useAuth();
+  const pathname = usePathname();
+
+  if (pathname === '/admin' || pathname === '/login' || pathname === '/faculty') return null;
 
   const closeMenu = () => setIsOpen(false);
 
@@ -25,18 +29,14 @@ export function Header() {
 
         {/* Desktop nav */}
         <div className="hidden items-center gap-2 md:flex">
-          <Link href="/" className="flex items-center gap-2 text-sm text-slate-600 transition hover:text-slate-900 hover:bg-slate-50 px-3 py-2 rounded-lg">
+          <Link href="/" className="flex items-center gap-2 text-sm text-slate-600 transition hover:text-slate-900 hover:bg-slate-50 px-3 py-2 rounded">
             <FiHome className="w-4 h-4" />
             Home
           </Link>
 
           {!user ? (
             <>
-              <Link href="/register" className="flex items-center gap-2 text-sm text-slate-600 transition hover:text-slate-900 hover:bg-slate-50 px-3 py-2 rounded-lg">
-                <FiUserPlus className="w-4 h-4" />
-                Register
-              </Link>
-              <Link href="/login" className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-700 shadow-sm">
+              <Link href="/login" className="flex items-center gap-2 rounded bg-green-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-700 shadow-sm">
                 <FiLogIn className="w-4 h-4" />
                 Login
               </Link>
@@ -44,8 +44,8 @@ export function Header() {
           ) : (
             <>
               {/* Greeting chip */}
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 border border-green-100">
-                <div className="w-6 h-6 rounded-full bg-green-600 flex items-center justify-center text-white shrink-0">
+              <div className="flex items-center gap-2 px-3 py-2 rounded bg-green-50 border border-green-100">
+                <div className="w-6 h-6 rounded bg-green-600 flex items-center justify-center text-white shrink-0">
                   <FiUser className="w-3 h-3" />
                 </div>
                 <span className="text-sm font-semibold text-green-800 max-w-[140px] truncate">
@@ -54,7 +54,7 @@ export function Header() {
               </div>
 
               {user.role === 'admin' && (
-                <Link href="/admin" className="flex items-center gap-2 text-sm text-slate-600 transition hover:text-slate-900 hover:bg-slate-50 px-3 py-2 rounded-lg">
+                <Link href="/admin" className="flex items-center gap-2 text-sm text-slate-600 transition hover:text-slate-900 hover:bg-slate-50 px-3 py-2 rounded">
                   <FiSettings className="w-4 h-4" />
                   Admin
                 </Link>
@@ -62,7 +62,7 @@ export function Header() {
 
               <button
                 onClick={logout}
-                className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200"
+                className="flex items-center gap-2 rounded border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200"
               >
                 <FiLogOut className="w-4 h-4" />
                 Logout
@@ -76,7 +76,7 @@ export function Header() {
           type="button"
           onClick={() => setIsOpen((prev) => !prev)}
           aria-label="Toggle menu"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-100 md:hidden"
+          className="inline-flex h-10 w-10 items-center justify-center rounded border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-100 md:hidden"
         >
           {isOpen ? <FiX className="w-5 h-5" /> : <FiMenu className="w-5 h-5" />}
         </button>
@@ -85,18 +85,14 @@ export function Header() {
       {/* Mobile drawer */}
       <div className={`md:hidden overflow-hidden bg-white transition-all duration-300 ${isOpen ? 'max-h-96 border-t border-slate-200' : 'max-h-0'}`}>
         <div className="space-y-1 px-5 py-4">
-          <Link href="/" onClick={closeMenu} className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50">
+          <Link href="/" onClick={closeMenu} className="flex items-center gap-2 rounded px-3 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50">
             <FiHome className="w-4 h-4" />
             Home
           </Link>
 
           {!user ? (
             <>
-              <Link href="/register" onClick={closeMenu} className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50">
-                <FiUserPlus className="w-4 h-4" />
-                Register
-              </Link>
-              <Link href="/login" onClick={closeMenu} className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50">
+              <Link href="/login" onClick={closeMenu} className="flex items-center gap-2 rounded px-3 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50">
                 <FiLogIn className="w-4 h-4" />
                 Login
               </Link>
@@ -104,8 +100,8 @@ export function Header() {
           ) : (
             <>
               {/* Greeting row */}
-              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-green-50 border border-green-100">
-                <div className="w-7 h-7 rounded-full bg-green-600 flex items-center justify-center text-white shrink-0">
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded bg-green-50 border border-green-100">
+                <div className="w-7 h-7 rounded bg-green-600 flex items-center justify-center text-white shrink-0">
                   <FiUser className="w-3.5 h-3.5" />
                 </div>
                 <div className="min-w-0">
@@ -115,7 +111,7 @@ export function Header() {
               </div>
 
               {user.role === 'admin' && (
-                <Link href="/admin" onClick={closeMenu} className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50">
+                <Link href="/admin" onClick={closeMenu} className="flex items-center gap-2 rounded px-3 py-2.5 text-sm text-slate-700 transition hover:bg-slate-50">
                   <FiSettings className="w-4 h-4" />
                   Admin
                 </Link>
@@ -124,7 +120,7 @@ export function Header() {
               <button
                 type="button"
                 onClick={() => { logout(); closeMenu(); }}
-                className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-rose-600 transition hover:bg-rose-50"
+                className="flex w-full items-center gap-2 rounded px-3 py-2.5 text-sm font-semibold text-rose-600 transition hover:bg-rose-50"
               >
                 <FiLogOut className="w-4 h-4" />
                 Logout

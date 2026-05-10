@@ -1,4 +1,4 @@
-export type UserRole = 'student' | 'faculty' | 'admin';
+export type UserRole = 'faculty' | 'admin';
 
 export interface User {
   name: string;
@@ -6,6 +6,15 @@ export interface User {
   password: string;
   college?: string;
   role: UserRole;
+}
+
+export interface DbUser {
+  id: number;
+  name: string;
+  email: string;
+  role: UserRole;
+  college?: string | null;
+  created_at: string;
 }
 
 export interface StudentRecord {

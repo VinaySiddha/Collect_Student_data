@@ -1,7 +1,7 @@
 'use server';
 
 import { dbExecute } from './db';
-import { User, StudentRecord, UserRole } from './types';
+import { User, StudentRecord, UserRole, DbUser } from './types';
 import { RowDataPacket } from 'mysql2';
 import crypto from 'crypto';
 
@@ -12,26 +12,26 @@ function hashPassword(password: string, email: string) {
     .digest('hex');
 }
 
-export async function loginUser(email: string, password: string, role: UserRole) {
+export async function loginUser(email: string, password: string) {
   try {
     const hashedPassword = hashPassword(password, email);
     const [rows] = await dbExecute<RowDataPacket[]>(
-      'SELECT * FROM users WHERE email = ? AND password = ? AND role = ?',
-      [email.toLowerCase(), hashedPassword, role]
+      'SELECT * FROM users WHERE email = ? AND password = ?',
+      [email.toLowerCase(), hashedPassword]
     );
 
     if (rows.length === 0) {
       // Fallback: plain-text password check for legacy/transition accounts
       const [plainRows] = await dbExecute<RowDataPacket[]>(
-        'SELECT * FROM users WHERE email = ? AND password = ? AND role = ?',
-        [email.toLowerCase(), password, role]
+        'SELECT * FROM users WHERE email = ? AND password = ?',
+        [email.toLowerCase(), password]
       );
 
       if (plainRows.length > 0) {
         return { success: true, message: 'Login successful.', user: plainRows[0] as User };
       }
 
-      return { success: false, message: 'Invalid credentials or role.' };
+      return { success: false, message: 'Invalid email or password.' };
     }
 
     return { success: true, message: 'Login successful.', user: rows[0] as User };
@@ -96,6 +96,28 @@ export async function deleteStudentFromDb(id: string) {
     return { success: true };
   } catch (error) {
     console.error('Delete student error:', error);
+    return { success: false };
+  }
+}
+
+export async function getUsers(): Promise<DbUser[]> {
+  try {
+    const [rows] = await dbExecute<RowDataPacket[]>(
+      'SELECT id, name, email, role, college, created_at FROM users ORDER BY created_at DESC'
+    );
+    return rows as DbUser[];
+  } catch (error) {
+    console.error('Get users error:', error);
+    return [];
+  }
+}
+
+export async function deleteUser(id: number) {
+  try {
+    await dbExecute('DELETE FROM users WHERE id = ?', [id]);
+    return { success: true };
+  } catch (error) {
+    console.error('Delete user error:', error);
     return { success: false };
   }
 }

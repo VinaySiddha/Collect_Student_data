@@ -63,6 +63,29 @@ export function saveAuthEmail(email: string | null) {
   }
 }
 
+const AUTH_USER_KEY = 'student-id-auth-user';
+
+type StoredUser = { name: string; email: string; role: string; college?: string };
+
+export function saveAuthUser(user: StoredUser | null) {
+  if (typeof window === 'undefined') return;
+  if (user) {
+    window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  } else {
+    window.localStorage.removeItem(AUTH_USER_KEY);
+  }
+}
+
+export function loadAuthUser(): StoredUser | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(AUTH_USER_KEY);
+    return raw ? (JSON.parse(raw) as StoredUser) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function loadColleges(): string[] {
   if (typeof window === 'undefined') return defaultColleges;
   try {

@@ -11,11 +11,10 @@ function createPool() {
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
-    // Keep connections alive so the MySQL server doesn't close them on idle
     enableKeepAlive: true,
     keepAliveInitialDelay: 10000,
-    // Reject connections that take too long to establish
     connectTimeout: 30000,
+    ssl: { rejectUnauthorized: false },
   });
 }
 

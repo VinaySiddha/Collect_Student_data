@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { StudentRecord } from '@/lib/types';
 import { FiX, FiMail, FiPhone, FiCalendar, FiMapPin, FiDownload, FiUser } from 'react-icons/fi';
@@ -40,12 +40,12 @@ export default function StudentDetailsModal({ student, onClose }: StudentDetails
       className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/40 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto animate-fade-in"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="relative w-full max-w-3xl my-4 sm:my-8 bg-white rounded-2xl sm:rounded-[2rem] shadow-2xl overflow-hidden animate-scale-up border border-slate-200">
+      <div className="relative w-full max-w-3xl my-4 sm:my-8 bg-white rounded shadow-2xl overflow-hidden animate-scale-up border border-slate-200">
 
         {/* Close button — always visible at top-right of modal */}
         <button
           onClick={onClose}
-          className="absolute right-4 top-4 sm:right-6 sm:top-6 z-20 w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-900 hover:text-white transition-all duration-300 shadow-sm"
+          className="absolute right-4 top-4 sm:right-6 sm:top-6 z-20 w-9 h-9 sm:w-10 sm:h-10 rounded bg-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-900 hover:text-white transition-all duration-300 shadow-sm"
         >
           <FiX className="h-4 w-4 sm:h-5 sm:w-5" />
         </button>
@@ -56,7 +56,7 @@ export default function StudentDetailsModal({ student, onClose }: StudentDetails
           <div className="bg-slate-50 p-5 sm:p-8 flex flex-col items-center justify-center border-b lg:border-b-0 lg:border-r border-slate-100">
             <div
               id="id-card-render-area"
-              className="w-[200px] h-[320px] sm:w-[220px] sm:h-[350px] bg-white rounded-[1.25rem] shadow-xl relative overflow-hidden flex flex-col border border-slate-200"
+              className="w-[200px] h-[320px] sm:w-[220px] sm:h-[350px] bg-white rounded shadow-xl relative overflow-hidden flex flex-col border border-slate-200"
             >
               <div className="h-20 sm:h-24 bg-slate-900 flex flex-col items-center justify-center p-3 sm:p-4 text-center">
                 <p className="text-[0.5rem] font-black uppercase tracking-[0.3em] text-cyan-400 mb-1">Identity Card</p>
@@ -64,7 +64,7 @@ export default function StudentDetailsModal({ student, onClose }: StudentDetails
               </div>
 
               <div className="flex-1 flex flex-col items-center pt-6 sm:pt-8 px-4 sm:px-6">
-                <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl sm:rounded-3xl overflow-hidden border-4 border-white shadow-lg bg-slate-100">
+                <div className="w-24 h-24 sm:w-28 sm:h-28 rounded overflow-hidden border-4 border-white shadow-lg bg-slate-100">
                   {student.photo ? (
                     <img src={student.photo} alt={student.name} className="w-full h-full object-cover" />
                   ) : (
@@ -100,7 +100,7 @@ export default function StudentDetailsModal({ student, onClose }: StudentDetails
 
             <button
               onClick={exportIDCard}
-              className="mt-5 sm:mt-8 group flex items-center justify-center gap-2 sm:gap-3 bg-slate-900 text-white px-6 sm:px-8 py-3 sm:py-3.5 rounded-xl font-bold text-xs sm:text-sm hover:bg-green-600 transition-all duration-300 shadow-lg active:scale-95"
+              className="mt-5 sm:mt-8 group flex items-center justify-center gap-2 sm:gap-3 bg-slate-900 text-white px-6 sm:px-8 py-3 sm:py-3.5 rounded font-bold text-xs sm:text-sm hover:bg-green-600 transition-all duration-300 shadow-lg active:scale-95"
             >
               <FiDownload className="w-4 h-4" /> Download ID Card
             </button>
@@ -115,7 +115,7 @@ export default function StudentDetailsModal({ student, onClose }: StudentDetails
 
             <div className="grid gap-5 sm:gap-6">
               <div className="flex items-center gap-3 sm:gap-4">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 border border-slate-100 shrink-0">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded bg-slate-50 flex items-center justify-center text-slate-400 border border-slate-100 shrink-0">
                   <FiMail className="w-4 h-4 sm:w-5 sm:h-5" />
                 </div>
                 <div className="min-w-0">
@@ -125,7 +125,7 @@ export default function StudentDetailsModal({ student, onClose }: StudentDetails
               </div>
 
               <div className="flex items-center gap-3 sm:gap-4">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 border border-slate-100 shrink-0">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded bg-slate-50 flex items-center justify-center text-slate-400 border border-slate-100 shrink-0">
                   <FiPhone className="w-4 h-4 sm:w-5 sm:h-5" />
                 </div>
                 <div>
@@ -135,7 +135,7 @@ export default function StudentDetailsModal({ student, onClose }: StudentDetails
               </div>
 
               <div className="flex items-center gap-3 sm:gap-4">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 border border-slate-100 shrink-0">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded bg-slate-50 flex items-center justify-center text-slate-400 border border-slate-100 shrink-0">
                   <FiMapPin className="w-4 h-4 sm:w-5 sm:h-5" />
                 </div>
                 <div className="min-w-0">
@@ -145,7 +145,7 @@ export default function StudentDetailsModal({ student, onClose }: StudentDetails
               </div>
 
               <div className="flex items-center gap-3 sm:gap-4">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 border border-slate-100 shrink-0">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded bg-slate-50 flex items-center justify-center text-slate-400 border border-slate-100 shrink-0">
                   <FiCalendar className="w-4 h-4 sm:w-5 sm:h-5" />
                 </div>
                 <div>
@@ -157,7 +157,7 @@ export default function StudentDetailsModal({ student, onClose }: StudentDetails
 
             <div className="mt-6 sm:mt-auto pt-6 border-t border-slate-100">
               <div className="flex items-center gap-2 sm:gap-3">
-                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-md sm:rounded-lg bg-green-50 flex items-center justify-center text-green-600">
+                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded sm:rounded bg-green-50 flex items-center justify-center text-green-600">
                   <FiUser className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 </div>
                 <p className="text-[0.65rem] sm:text-[0.7rem] font-bold text-slate-400 uppercase tracking-widest">Last Modified by: {student.createdBy || 'Administrator'}</p>

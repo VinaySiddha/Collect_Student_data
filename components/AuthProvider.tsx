@@ -1,22 +1,23 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { loadAuthEmail, saveAuthEmail } from '@/lib/storage';
+import { loadAuthEmail, saveAuthEmail, saveAuthUser, loadAuthUser } from '@/lib/storage';
 import { StudentRecord, User, UserRole } from '@/lib/types';
-import { 
-  loginUser, 
-  registerUser, 
-  getStudents, 
-  addStudentToDb, 
-  deleteStudentFromDb, 
-  getCollegesFromDb 
+import {
+  loginUser,
+  registerUser,
+  getStudents,
+  addStudentToDb,
+  deleteStudentFromDb,
+  getCollegesFromDb
 } from '@/lib/actions';
 
 interface AuthContextValue {
   user: User | null;
+  initialized: boolean;
   students: StudentRecord[];
   colleges: string[];
-  login: (email: string, password: string, role: UserRole) => Promise<{ success: boolean; message: string }>;
+  login: (email: string, password: string) => Promise<{ success: boolean; message: string; role: UserRole | null }>;
   register: (name: string, email: string, password: string, role: UserRole, college?: string) => Promise<{ success: boolean; message: string }>;
   addCollege: (college: string) => { success: boolean; message: string };
   removeCollege: (college: string) => { success: boolean; message: string };
@@ -30,39 +31,56 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [initialized, setInitialized] = useState(false);
   const [students, setStudents] = useState<StudentRecord[]>([]);
   const [colleges, setColleges] = useState<string[]>([]);
 
   useEffect(() => {
     const initAuth = async () => {
-      const dbStudents = await getStudents();
-      const dbColleges = await getCollegesFromDb();
+      // Restore user session from localStorage before any async work
+      const storedUser = loadAuthUser();
+      if (storedUser) {
+        setUser(storedUser as User);
+      }
+
+      const [dbStudents, dbColleges] = await Promise.all([
+        getStudents(),
+        getCollegesFromDb(),
+      ]);
       setStudents(dbStudents);
       setColleges(dbColleges);
-      
-      const authEmail = loadAuthEmail();
-      if (authEmail) {
-        // In a real app, we'd verify the session/cookie on the server
-        // For this demo, we'll try to find the user in the DB
-        // (Note: This is a bit inefficient, usually you'd use a session token)
-      }
+
+      setInitialized(true);
     };
     initAuth();
   }, []);
 
-  const login = async (email: string, password: string, role: UserRole) => {
-    const result = await loginUser(email, password, role);
+  const login = async (email: string, password: string) => {
+    const result = await loginUser(email, password);
     if (result.success && result.user) {
       saveAuthEmail(result.user.email);
+      saveAuthUser({
+        name: result.user.name,
+        email: result.user.email,
+        role: result.user.role,
+        college: result.user.college,
+      });
       setUser(result.user);
+      return { success: true, message: result.message, role: result.user.role as UserRole };
     }
-    return { success: result.success, message: result.message };
+    return { success: false, message: result.message, role: null };
   };
 
   const register = async (name: string, email: string, password: string, role: UserRole, college?: string) => {
     const result = await registerUser(name, email, password, role, college);
     if (result.success && result.user) {
       saveAuthEmail(result.user.email);
+      saveAuthUser({
+        name: result.user.name,
+        email: result.user.email,
+        role: result.user.role,
+        college: result.user.college,
+      });
       setUser(result.user);
     }
     return { success: result.success, message: result.message };
@@ -76,8 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (colleges.includes(normalized)) {
       return { success: false, message: 'This college already exists.' };
     }
-    const updated = [...colleges, normalized];
-    setColleges(updated);
+    setColleges([...colleges, normalized]);
     return { success: true, message: 'College added successfully.' };
   };
 
@@ -93,14 +110,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (associatedStudents.length > 0) {
       return { success: false, message: 'Cannot remove a college that still has students.' };
     }
-    const updated = colleges.filter((item) => item !== normalized);
-    setColleges(updated);
+    setColleges(colleges.filter((item) => item !== normalized));
     return { success: true, message: 'College removed successfully.' };
   };
 
   const logout = () => {
     saveAuthEmail(null);
+    saveAuthUser(null);
     setUser(null);
+    window.location.href = '/login';
   };
 
   const addStudent = async (student: StudentRecord) => {
@@ -125,18 +143,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      students, 
-      colleges, 
-      login, 
-      register, 
-      addCollege, 
-      removeCollege, 
-      logout, 
-      addStudent, 
-      importStudents, 
-      deleteStudent 
+    <AuthContext.Provider value={{
+      user,
+      initialized,
+      students,
+      colleges,
+      login,
+      register,
+      addCollege,
+      removeCollege,
+      logout,
+      addStudent,
+      importStudents,
+      deleteStudent
     }}>
       {children}
     </AuthContext.Provider>
