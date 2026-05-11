@@ -25,7 +25,7 @@ function createPool() {
     enableKeepAlive: true,
     keepAliveInitialDelay: 10000,
     connectTimeout: 30000,
-    ssl: { rejectUnauthorized: false },
+    ssl: getSslConfig(),
   });
 }
 
@@ -65,7 +65,9 @@ export async function dbExecute<T extends QueryResult>(
         code === 'PROTOCOL_CONNECTION_LOST' ||
         code === 'ECONNRESET' ||
         code === 'ECONNREFUSED' ||
-        code === 'ETIMEDOUT';
+        code === 'ETIMEDOUT' ||
+        code === 'HANDSHAKE_NO_SSL_SUPPORT' ||
+        code === 'HANDSHAKE_TIMEOUT';
 
       if (isRetryableError && attempt < maxRetries) {
         // Wait before retrying (exponential backoff)
