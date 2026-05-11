@@ -1,6 +1,17 @@
 import mysql from 'mysql2/promise';
 import type { RowDataPacket, ResultSetHeader, FieldPacket } from 'mysql2';
 
+function getSslConfig() {
+  const sslEnv = (process.env.DB_SSL ?? '').trim().toLowerCase();
+
+  // Keep SSL opt-in because some shared-hosting MySQL endpoints do not support TLS.
+  if (sslEnv === '1' || sslEnv === 'true' || sslEnv === 'required') {
+    return { rejectUnauthorized: false };
+  }
+
+  return undefined;
+}
+
 function createPool() {
   return mysql.createPool({
     host: process.env.DB_HOST,
@@ -14,7 +25,7 @@ function createPool() {
     enableKeepAlive: true,
     keepAliveInitialDelay: 10000,
     connectTimeout: 30000,
-    ssl: { rejectUnauthorized: false },
+    ssl: getSslConfig(),
   });
 }
 
