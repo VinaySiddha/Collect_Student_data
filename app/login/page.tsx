@@ -11,9 +11,15 @@ export default function LoginPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  function roleRedirect(role: string) {
+    if (role === 'admin') return '/admin';
+    if (role === 'faculty_admin') return '/faculty-admin';
+    return '/faculty';
+  }
+
   useEffect(() => {
     if (user) {
-      window.location.href = user.role === 'admin' ? '/admin' : '/faculty';
+      window.location.href = roleRedirect(user.role);
     }
   }, [user]);
 
@@ -24,7 +30,7 @@ export default function LoginPage() {
     try {
       const result = await login(email, password);
       if (result.success && result.role) {
-        window.location.href = result.role === 'admin' ? '/admin' : '/faculty';
+        window.location.href = roleRedirect(result.role);
       } else {
         setLoading(false);
         setMessage(result.message || 'Login failed. Please try again.');

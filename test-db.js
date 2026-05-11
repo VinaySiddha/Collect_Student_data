@@ -35,7 +35,7 @@ async function testConnection() {
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
       port: Number(process.env.DB_PORT) || 3306,
-      ssl: { rejectUnauthorized: false },
+      ssl: false,
     });
 
     console.log('🚀 Successfully connected to the database!');

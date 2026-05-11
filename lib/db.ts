@@ -14,7 +14,6 @@ function createPool() {
     enableKeepAlive: true,
     keepAliveInitialDelay: 10000,
     connectTimeout: 30000,
-    ssl: { rejectUnauthorized: false },
   });
 }
 
@@ -33,27 +32,36 @@ type QueryResult = RowDataPacket[] | ResultSetHeader;
 type SqlValues = (string | number | boolean | null | Buffer | Date)[];
 
 /**
- * Executes a query and retries once on a lost-connection error.
- * MySQL servers close idle connections after wait_timeout; this catches
- * the stale-connection case and lets the pool issue a fresh one.
+ * Executes a query and retries on connection errors.
+ * MySQL servers may close idle connections or reject initial handshakes;
+ * this catches such cases and lets the pool issue a fresh connection.
  */
 export async function dbExecute<T extends QueryResult>(
   sql: string,
   values?: SqlValues
 ): Promise<[T, FieldPacket[]]> {
-  try {
-    return await pool.execute<T>(sql, values);
-  } catch (err: unknown) {
-    const code = (err as NodeJS.ErrnoException & { code?: string }).code;
-    if (
-      code === 'PROTOCOL_CONNECTION_LOST' ||
-      code === 'ECONNRESET' ||
-      code === 'ECONNREFUSED' ||
-      code === 'ETIMEDOUT'
-    ) {
-      // Retry once — the pool will allocate a fresh connection
+  const maxRetries = 3;
+  let lastErr: unknown;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
       return await pool.execute<T>(sql, values);
+    } catch (err: unknown) {
+      lastErr = err;
+      const code = (err as NodeJS.ErrnoException & { code?: string }).code;
+      const isRetryableError =
+        code === 'PROTOCOL_CONNECTION_LOST' ||
+        code === 'ECONNRESET' ||
+        code === 'ECONNREFUSED' ||
+        code === 'ETIMEDOUT';
+
+      if (isRetryableError && attempt < maxRetries) {
+        // Wait before retrying (exponential backoff)
+        await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+        continue;
+      }
+      throw err;
     }
-    throw err;
   }
+  throw lastErr;
 }

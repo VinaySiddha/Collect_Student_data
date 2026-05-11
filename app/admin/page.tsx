@@ -7,16 +7,16 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import StudentTable from '@/components/StudentTable';
-import { FiUsers, FiDownload, FiPlus, FiTrash2, FiMapPin, FiLogOut, FiLayout, FiUser, FiMail, FiLock, FiBook, FiChevronDown, FiChevronLeft, FiChevronRight, FiSearch, FiMenu, FiX } from 'react-icons/fi';
+import { FiUsers, FiDownload, FiPlus, FiTrash2, FiMapPin, FiLogOut, FiLayout, FiUser, FiMail, FiLock, FiBook, FiChevronDown, FiChevronLeft, FiChevronRight, FiSearch, FiMenu, FiX, FiEdit2, FiSave } from 'react-icons/fi';
 import { GoSidebarExpand, GoSidebarCollapse } from 'react-icons/go';
 import { registerUser, getUsers, deleteUser } from '@/lib/actions';
-import { DbUser } from '@/lib/types';
+import { DbUser, StudentRecord } from '@/lib/types';
 
 type View = 'dashboard' | 'institutes' | 'users';
 
 export default function AdminPage() {
   const router = useRouter();
-  const { user, initialized, logout, students, colleges, addCollege, removeCollege, deleteStudent } = useAuth();
+  const { user, initialized, logout, students, colleges, addCollege, removeCollege, deleteStudent, updateStudent } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [newCollege, setNewCollege] = useState('');
@@ -24,11 +24,15 @@ export default function AdminPage() {
   const [activeView, setActiveView] = useState<View>('dashboard');
   const [dbUsers, setDbUsers] = useState<DbUser[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
-  const [userForm, setUserForm] = useState({ name: '', email: '', password: '', role: 'faculty' as 'faculty', college: '' });
+  const [userForm, setUserForm] = useState({ name: '', email: '', password: '', role: 'faculty' as 'faculty' | 'faculty_admin', college: '' });
   const [userMsg, setUserMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [collegeSearch, setCollegeSearch] = useState('');
   const [collegePage, setCollegePage] = useState(1);
   const [collegeRowsPerPage, setCollegeRowsPerPage] = useState(10);
+  const [editStudent, setEditStudent] = useState<StudentRecord | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', studentId: '', course: '', year: '', email: '', phone: '', college: '' });
+  const [editMsg, setEditMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
 
   useEffect(() => {
     if (!initialized) return;
@@ -46,6 +50,26 @@ export default function AdminPage() {
     }
   }, [activeView, user]);
 
+  const openEditModal = (student: StudentRecord) => {
+    setEditStudent(student);
+    setEditForm({ name: student.name, studentId: student.studentId, course: student.course, year: student.year, email: student.email, phone: student.phone, college: student.college });
+    setEditMsg(null);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editStudent) return;
+    if (!editForm.name || !editForm.studentId || !editForm.course || !editForm.year) {
+      setEditMsg({ text: 'Name, Student ID, course and year are required.', type: 'error' });
+      return;
+    }
+    setEditSaving(true);
+    const updated: StudentRecord = { ...editStudent, ...editForm };
+    await updateStudent(updated);
+    setEditMsg({ text: 'Student updated successfully.', type: 'success' });
+    setEditSaving(false);
+    setTimeout(() => { setEditStudent(null); setEditMsg(null); }, 1200);
+  };
+
   const handleCreateUser = async () => {
     if (!userForm.name || !userForm.email || !userForm.password) {
       setUserMsg({ text: 'Name, email and password are required.', type: 'error' });
@@ -54,7 +78,7 @@ export default function AdminPage() {
     const result = await registerUser(userForm.name, userForm.email, userForm.password, userForm.role, userForm.college || undefined);
     setUserMsg({ text: result.message, type: result.success ? 'success' : 'error' });
     if (result.success) {
-      setUserForm({ name: '', email: '', password: '', role: 'faculty' as 'faculty', college: '' });
+      setUserForm({ name: '', email: '', password: '', role: 'faculty' as 'faculty' | 'faculty_admin', college: '' });
       getUsers().then(setDbUsers);
       setTimeout(() => setUserMsg(null), 3000);
     }
@@ -265,16 +289,19 @@ export default function AdminPage() {
           >
             <FiMenu className="w-5 h-5" />
           </button>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
             <div className="w-7 h-7 bg-green-500 rounded flex items-center justify-center shrink-0">
               <span className="text-white text-xs font-black">G</span>
             </div>
-            <p className="text-white font-black text-sm">Gographic</p>
+            <p className="text-white font-black text-sm truncate">Gographic</p>
           </div>
+          <span className="text-white/40 text-[0.6rem] font-black uppercase tracking-widest shrink-0 capitalize">
+            {activeView}
+          </span>
         </div>
 
         {/* Main */}
-        <main className="flex-1 min-w-0 p-4 lg:p-8 overflow-y-auto">
+        <main className="flex-1 min-w-0 p-4 lg:p-8 pb-24 lg:pb-8 overflow-y-auto">
 
           {/* Dashboard */}
           {activeView === 'dashboard' && (
@@ -294,7 +321,7 @@ export default function AdminPage() {
                 </div>
               </div>
               <div className="bg-white rounded border border-slate-200 shadow-sm p-3 sm:p-4 lg:p-6">
-                <StudentTable students={students} onDelete={deleteStudent} />
+                <StudentTable students={students} onDelete={deleteStudent} onEdit={openEditModal} />
               </div>
             </div>
           )}
@@ -495,8 +522,8 @@ export default function AdminPage() {
           {activeView === 'users' && (
             <div className="space-y-6">
               <div>
-                <h1 className="text-2xl font-black text-slate-900">Users</h1>
-                <p className="text-sm text-slate-500 font-medium mt-0.5">Create and manage faculty accounts</p>
+                <h1 className="text-xl sm:text-2xl font-black text-slate-900">Users</h1>
+                <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">Create and manage faculty accounts</p>
               </div>
 
               {/* Create user form */}
@@ -558,10 +585,11 @@ export default function AdminPage() {
                     <div className="relative">
                       <select
                         value={userForm.role}
-                        onChange={e => setUserForm(f => ({ ...f, role: e.target.value as 'faculty' }))}
+                        onChange={e => setUserForm(f => ({ ...f, role: e.target.value as 'faculty' | 'faculty_admin' }))}
                         className="input-field text-sm appearance-none pr-8"
                       >
                         <option value="faculty">Faculty</option>
+                        <option value="faculty_admin">Faculty Admin</option>
                       </select>
                       <FiChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 pointer-events-none" />
                     </div>
@@ -643,14 +671,14 @@ export default function AdminPage() {
                               <p className="text-slate-600 font-medium text-sm truncate max-w-[200px]">{u.email}</p>
                             </td>
                             <td className="px-4 lg:px-6 py-4">
-                              <span className={`inline-flex items-center px-2.5 py-1 rounded text-[0.65rem] font-black uppercase tracking-widest ${
+                              <span className={`inline-flex items-center px-2.5 py-1 rounded text-[0.65rem] font-black uppercase tracking-widest whitespace-nowrap ${
                                 u.role === 'admin'
                                   ? 'bg-slate-900 text-white'
-                                  : u.role === 'faculty'
-                                  ? 'bg-blue-50 text-blue-700 border border-blue-100'
-                                  : 'bg-green-50 text-green-700 border border-green-100'
+                                  : u.role === 'faculty_admin'
+                                  ? 'bg-violet-50 text-violet-700 border border-violet-100'
+                                  : 'bg-blue-50 text-blue-700 border border-blue-100'
                               }`}>
-                                {u.role}
+                                {u.role === 'faculty_admin' ? 'Fac. Admin' : u.role}
                               </span>
                             </td>
                             <td className="px-4 lg:px-6 py-4 hidden md:table-cell">
@@ -683,12 +711,105 @@ export default function AdminPage() {
         </main>
       </div>
 
+      {/* Mobile bottom tab bar */}
+      <nav className="fixed bottom-0 inset-x-0 z-40 lg:hidden bg-slate-900 border-t border-white/10 flex safe-area-bottom">
+        {([
+          { view: 'dashboard' as const, icon: <FiLayout className="w-5 h-5" />, label: 'Dashboard' },
+          { view: 'institutes' as const, icon: <FiMapPin className="w-5 h-5" />, label: 'Institutes' },
+          { view: 'users' as const, icon: <FiUsers className="w-5 h-5" />, label: 'Users' },
+        ] as const).map(({ view, icon, label }) => (
+          <button
+            key={view}
+            onClick={() => setActiveView(view)}
+            className={`flex-1 flex flex-col items-center gap-1 pt-3 pb-4 text-[0.55rem] font-black uppercase tracking-widest transition-colors ${
+              activeView === view ? 'text-white' : 'text-white/35 hover:text-white/70'
+            }`}
+          >
+            <span className={`transition-transform ${activeView === view ? 'scale-110' : ''}`}>{icon}</span>
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {/* Edit Student Modal */}
+      {editStudent && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4" onClick={() => setEditStudent(null)}>
+          <div className="bg-white rounded-t-2xl sm:rounded-lg shadow-2xl w-full max-w-lg sm:max-w-lg p-5 sm:p-6 space-y-5 max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-black text-slate-900">Edit Student</h2>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">Update student record details</p>
+              </div>
+              <button onClick={() => setEditStudent(null)} className="w-8 h-8 flex items-center justify-center rounded text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition">
+                <FiX className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              {[
+                { label: 'Full Name', key: 'name', type: 'text', placeholder: 'Student name' },
+                { label: 'Student ID', key: 'studentId', type: 'text', placeholder: 'e.g. STU001' },
+                { label: 'Course', key: 'course', type: 'text', placeholder: 'e.g. B.Tech CSE' },
+                { label: 'Year', key: 'year', type: 'text', placeholder: 'e.g. 3' },
+                { label: 'Email', key: 'email', type: 'email', placeholder: 'student@email.com' },
+                { label: 'Phone', key: 'phone', type: 'text', placeholder: '10-digit number' },
+              ].map(({ label, key, type, placeholder }) => (
+                <label key={key} className="block">
+                  <span className="mb-1 block text-xs font-black uppercase tracking-widest text-slate-400">{label}</span>
+                  <input
+                    type={type}
+                    value={editForm[key as keyof typeof editForm]}
+                    onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                    placeholder={placeholder}
+                    className="input-field text-sm"
+                  />
+                </label>
+              ))}
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block text-xs font-black uppercase tracking-widest text-slate-400">College</span>
+                <div className="relative">
+                  <select
+                    value={editForm.college}
+                    onChange={e => setEditForm(f => ({ ...f, college: e.target.value }))}
+                    className="input-field text-sm appearance-none pr-8"
+                  >
+                    {colleges.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <FiChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 pointer-events-none" />
+                </div>
+              </label>
+            </div>
+
+            {editMsg && (
+              <p className={`text-sm font-bold p-3 rounded ${editMsg.type === 'error' ? 'bg-rose-50 text-rose-600 border border-rose-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
+                {editMsg.text}
+              </p>
+            )}
+
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={handleSaveEdit}
+                disabled={editSaving}
+                className="flex items-center gap-2 bg-slate-900 text-white font-black px-5 py-2.5 rounded hover:bg-green-700 transition shadow-sm active:scale-95 text-sm disabled:opacity-60"
+              >
+                <FiSave className="w-3.5 h-3.5" />
+                {editSaving ? 'Saving…' : 'Save Changes'}
+              </button>
+              <button onClick={() => setEditStudent(null)} className="px-5 py-2.5 rounded border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Toast */}
       {message && activeView === 'dashboard' && (
-        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3.5 rounded shadow-2xl flex items-center gap-3 font-black text-sm border-2 whitespace-nowrap ${
+        <div className={`fixed bottom-20 lg:bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-lg shadow-2xl flex items-center gap-2.5 font-black text-sm border-2 max-w-[calc(100vw-2rem)] ${
           message.type === 'success' ? 'bg-emerald-500/90 text-white border-emerald-400/50' : 'bg-rose-500/90 text-white border-rose-400/50'
         }`}>
-          <span>{message.type === 'success' ? '✅' : '⚠️'}</span> {message.text}
+          <span className="shrink-0">{message.type === 'success' ? '✅' : '⚠️'}</span>
+          <span className="truncate">{message.text}</span>
         </div>
       )}
     </div>

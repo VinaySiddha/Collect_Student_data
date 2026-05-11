@@ -2,12 +2,13 @@
 
 import { useState, useMemo } from 'react';
 import { StudentRecord } from '@/lib/types';
-import { FiSearch, FiChevronLeft, FiChevronRight, FiTrash2, FiMapPin, FiXCircle } from 'react-icons/fi';
+import { FiSearch, FiChevronLeft, FiChevronRight, FiTrash2, FiMapPin, FiXCircle, FiEdit2 } from 'react-icons/fi';
 import StudentDetailsModal from './StudentDetailsModal';
 
 interface StudentTableProps {
   students: StudentRecord[];
   onDelete?: (id: string) => void;
+  onEdit?: (student: StudentRecord) => void;
 }
 
 function getPageNumbers(current: number, total: number): (number | '...')[] {
@@ -20,7 +21,7 @@ function getPageNumbers(current: number, total: number): (number | '...')[] {
   return pages;
 }
 
-export default function StudentTable({ students, onDelete }: StudentTableProps) {
+export default function StudentTable({ students, onDelete, onEdit }: StudentTableProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedStudent, setSelectedStudent] = useState<StudentRecord | null>(null);
@@ -195,7 +196,16 @@ export default function StudentTable({ students, onDelete }: StudentTableProps) 
 
                     {/* Action */}
                     <td className="px-3 sm:px-6 py-3">
-                      <div className="flex justify-end">
+                      <div className="flex justify-end gap-1.5">
+                        {onEdit && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onEdit(student); }}
+                            className="w-8 h-8 rounded bg-blue-50 text-blue-600 flex items-center justify-center hover:bg-blue-600 hover:text-white transition-all active:scale-95"
+                            title="Edit"
+                          >
+                            <FiEdit2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         {onDelete && (
                           <button
                             onClick={(e) => { e.stopPropagation(); onDelete(student.id); }}

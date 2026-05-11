@@ -281,16 +281,19 @@ export default function FacultyPage() {
           >
             <FiMenu className="w-5 h-5" />
           </button>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
             <div className="w-7 h-7 bg-blue-500 rounded flex items-center justify-center shrink-0">
               <span className="text-white text-xs font-black">G</span>
             </div>
-            <p className="text-white font-black text-sm">Gographic</p>
+            <p className="text-white font-black text-sm truncate">Gographic</p>
           </div>
+          <span className="text-white/40 text-[0.6rem] font-black uppercase tracking-widest shrink-0 capitalize">
+            {activeView}
+          </span>
         </div>
 
         {/* Main */}
-        <main className="flex-1 min-w-0 p-4 lg:p-8 overflow-y-auto">
+        <main className="flex-1 min-w-0 p-4 lg:p-8 pb-24 lg:pb-8 overflow-y-auto">
 
           {/* Dashboard */}
           {activeView === 'dashboard' && (
@@ -323,7 +326,7 @@ export default function FacultyPage() {
                 <p className="text-sm text-slate-500 font-medium mt-0.5">Add new students manually or import via Excel</p>
               </div>
 
-              <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+              <div className="grid gap-6 md:grid-cols-[1.1fr_0.9fr]">
 
                 {/* Manual form */}
                 <div className="bg-white rounded border border-slate-200 shadow-sm p-4 lg:p-6">
@@ -465,12 +468,32 @@ export default function FacultyPage() {
         </main>
       </div>
 
+      {/* Mobile bottom tab bar */}
+      <nav className="fixed bottom-0 inset-x-0 z-40 lg:hidden bg-blue-950 border-t border-white/10 flex">
+        {([
+          { view: 'dashboard' as const, icon: <FiLayout className="w-5 h-5" />, label: 'Dashboard' },
+          { view: 'register' as const, icon: <FiUserPlus className="w-5 h-5" />, label: 'Register' },
+        ] as const).map(({ view, icon, label }) => (
+          <button
+            key={view}
+            onClick={() => setActiveView(view)}
+            className={`flex-1 flex flex-col items-center gap-1 pt-3 pb-4 text-[0.55rem] font-black uppercase tracking-widest transition-colors ${
+              activeView === view ? 'text-white' : 'text-white/35 hover:text-white/70'
+            }`}
+          >
+            <span className={`transition-transform ${activeView === view ? 'scale-110' : ''}`}>{icon}</span>
+            {label}
+          </button>
+        ))}
+      </nav>
+
       {/* Toast */}
       {notice && (
-        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3.5 rounded shadow-2xl flex items-center gap-3 font-black text-sm border-2 whitespace-nowrap ${
+        <div className={`fixed bottom-20 lg:bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-lg shadow-2xl flex items-center gap-2.5 font-black text-sm border-2 max-w-[calc(100vw-2rem)] ${
           notice.type === 'success' ? 'bg-emerald-500/90 text-white border-emerald-400/50' : 'bg-rose-500/90 text-white border-rose-400/50'
         }`}>
-          <span>{notice.type === 'success' ? '✅' : '⚠️'}</span> {notice.message}
+          <span className="shrink-0">{notice.type === 'success' ? '✅' : '⚠️'}</span>
+          <span className="truncate">{notice.message}</span>
         </div>
       )}
     </div>

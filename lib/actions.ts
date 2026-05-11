@@ -122,6 +122,55 @@ export async function deleteUser(id: number) {
   }
 }
 
+export async function updateStudentInDb(student: StudentRecord) {
+  try {
+    await dbExecute(
+      'UPDATE students SET college=?, name=?, studentId=?, course=?, year=?, email=?, phone=? WHERE id=?',
+      [student.college, student.name, student.studentId, student.course, student.year, student.email, student.phone, student.id]
+    );
+    return { success: true };
+  } catch (error) {
+    console.error('Update student error:', error);
+    return { success: false };
+  }
+}
+
+export async function getUsersByCollege(college: string): Promise<DbUser[]> {
+  try {
+    const [rows] = await dbExecute<RowDataPacket[]>(
+      "SELECT id, name, email, role, college, created_at FROM users WHERE college = ? AND role = 'faculty' ORDER BY created_at DESC",
+      [college]
+    );
+    return rows as DbUser[];
+  } catch (error) {
+    console.error('Get users by college error:', error);
+    return [];
+  }
+}
+
+export async function getStudentsByCollege(college: string): Promise<StudentRecord[]> {
+  try {
+    const [rows] = await dbExecute<RowDataPacket[]>(
+      'SELECT * FROM students WHERE college = ? ORDER BY createdAt DESC',
+      [college]
+    );
+    return rows as StudentRecord[];
+  } catch (error) {
+    console.error('Fetch students by college error:', error);
+    return [];
+  }
+}
+
+export async function migrateRoleEnum() {
+  try {
+    await dbExecute(
+      "ALTER TABLE users MODIFY COLUMN role ENUM('faculty', 'admin', 'faculty_admin') NOT NULL DEFAULT 'faculty'"
+    );
+  } catch {
+    // Already migrated or no structural change needed
+  }
+}
+
 export async function getCollegesFromDb() {
   try {
     const [rows] = await dbExecute<RowDataPacket[]>(

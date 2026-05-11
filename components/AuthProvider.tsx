@@ -9,7 +9,9 @@ import {
   getStudents,
   addStudentToDb,
   deleteStudentFromDb,
-  getCollegesFromDb
+  updateStudentInDb,
+  getCollegesFromDb,
+  migrateRoleEnum,
 } from '@/lib/actions';
 
 interface AuthContextValue {
@@ -25,6 +27,7 @@ interface AuthContextValue {
   addStudent: (student: StudentRecord) => Promise<void>;
   importStudents: (newStudents: StudentRecord[]) => Promise<void>;
   deleteStudent: (id: string) => Promise<void>;
+  updateStudent: (student: StudentRecord) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -42,6 +45,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (storedUser) {
         setUser(storedUser as User);
       }
+
+      await migrateRoleEnum();
 
       const [dbStudents, dbColleges] = await Promise.all([
         getStudents(),
@@ -142,6 +147,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const updateStudent = async (student: StudentRecord) => {
+    const result = await updateStudentInDb(student);
+    if (result.success) {
+      setStudents(students.map((r) => (r.id === student.id ? student : r)));
+    }
+  };
+
   return (
     <AuthContext.Provider value={{
       user,
@@ -155,7 +167,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       logout,
       addStudent,
       importStudents,
-      deleteStudent
+      deleteStudent,
+      updateStudent,
     }}>
       {children}
     </AuthContext.Provider>
