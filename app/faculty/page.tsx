@@ -3,19 +3,20 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
+import { getDeletedStudentsByCollege, restoreStudentInDb } from '@/lib/actions';
 import { StudentRecord } from '@/lib/types';
 import StudentTable from '@/components/StudentTable';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import { FiUserPlus, FiUpload, FiDownload, FiUsers, FiLogOut, FiLayout, FiMenu, FiX } from 'react-icons/fi';
+import { FiUserPlus, FiUpload, FiDownload, FiUsers, FiLogOut, FiLayout, FiMenu, FiX, FiRotateCcw, FiChevronDown } from 'react-icons/fi';
 import { GoSidebarExpand, GoSidebarCollapse } from 'react-icons/go';
 
 type View = 'dashboard' | 'register';
 
 export default function FacultyPage() {
   const router = useRouter();
-  const { user, initialized, logout, students, addStudent, importStudents, deleteStudent, colleges } = useAuth();
+  const { user, initialized, logout, students, addStudent, importStudents, deleteStudent, colleges, refreshStudents } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [activeView, setActiveView] = useState<View>('dashboard');
@@ -23,6 +24,8 @@ export default function FacultyPage() {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [notice, setNotice] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [deletedStudents, setDeletedStudents] = useState<StudentRecord[]>([]);
+  const [showDeletedStudents, setShowDeletedStudents] = useState(false);
 
   useEffect(() => {
     if (!initialized) return;
@@ -33,6 +36,20 @@ export default function FacultyPage() {
       setForm((prev) => ({ ...prev, college: colleges[0] }));
     }
   }, [user, initialized, router, colleges, form.college]);
+
+  useEffect(() => {
+    if (activeView === 'dashboard' && user?.college) {
+      getDeletedStudentsByCollege(user.college).then(setDeletedStudents);
+    }
+  }, [activeView, user?.college]);
+
+  const handleRestoreStudent = async (id: string) => {
+    const result = await restoreStudentInDb(id);
+    if (result.success) {
+      setDeletedStudents(prev => prev.filter(s => s.id !== id));
+      await refreshStudents();
+    }
+  };
 
   const handlePhoto = (file: File | null) => {
     if (!file) { setPhotoPreview(null); return; }
@@ -314,6 +331,63 @@ export default function FacultyPage() {
               </div>
               <div className="bg-white rounded border border-slate-200 shadow-sm p-3 sm:p-4 lg:p-6">
                 <StudentTable students={facultyStudents} onDelete={deleteStudent} />
+              </div>
+
+              {/* Deleted Students */}
+              <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+                <button
+                  onClick={() => setShowDeletedStudents(v => !v)}
+                  className="w-full flex items-center justify-between px-4 lg:px-6 py-3.5 hover:bg-slate-50 transition text-left"
+                >
+                  <span className="flex items-center gap-2 text-sm font-black text-slate-500">
+                    <FiRotateCcw className="w-4 h-4" />
+                    Deleted Students
+                    {deletedStudents.length > 0 && (
+                      <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-600 text-[0.65rem] font-black">{deletedStudents.length}</span>
+                    )}
+                  </span>
+                  <FiChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showDeletedStudents ? 'rotate-180' : ''}`} />
+                </button>
+                {showDeletedStudents && (
+                  <div className="border-t border-slate-100">
+                    {deletedStudents.length === 0 ? (
+                      <p className="px-6 py-8 text-center text-sm text-slate-400 font-bold">No deleted students.</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-sm border-separate border-spacing-0">
+                          <thead className="bg-slate-50 text-slate-400 text-[0.6rem] font-black uppercase tracking-widest">
+                            <tr>
+                              <th className="px-4 lg:px-6 py-3 text-left">Student</th>
+                              <th className="px-4 lg:px-6 py-3 text-left hidden sm:table-cell">Course</th>
+                              <th className="px-4 lg:px-6 py-3 text-right">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {deletedStudents.map(s => (
+                              <tr key={s.id} className="bg-rose-50/20">
+                                <td className="px-4 lg:px-6 py-3">
+                                  <p className="font-bold text-slate-400 text-sm">{s.name}</p>
+                                  <p className="text-[0.65rem] text-slate-300">{s.studentId}</p>
+                                </td>
+                                <td className="px-4 lg:px-6 py-3 hidden sm:table-cell">
+                                  <p className="text-sm text-slate-400 font-medium">{s.course}</p>
+                                </td>
+                                <td className="px-4 lg:px-6 py-3 text-right">
+                                  <button
+                                    onClick={() => handleRestoreStudent(s.id)}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-black text-emerald-600 bg-emerald-50 hover:bg-emerald-500 hover:text-white border border-emerald-100 transition ml-auto"
+                                  >
+                                    <FiRotateCcw className="w-3 h-3" /> Restore
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}

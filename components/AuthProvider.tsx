@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { loadAuthEmail, saveAuthEmail, saveAuthUser, loadAuthUser } from '@/lib/storage';
+import { hashPasswordClient } from '@/lib/clientHash';
 import { StudentRecord, User, UserRole } from '@/lib/types';
 import {
   loginUser,
@@ -12,6 +13,9 @@ import {
   updateStudentInDb,
   getCollegesFromDb,
   migrateRoleEnum,
+  ensureCollegesTable,
+  addCollegeToDb,
+  deleteCollegeFromDb,
 } from '@/lib/actions';
 
 interface AuthContextValue {
@@ -21,13 +25,15 @@ interface AuthContextValue {
   colleges: string[];
   login: (email: string, password: string) => Promise<{ success: boolean; message: string; role: UserRole | null }>;
   register: (name: string, email: string, password: string, role: UserRole, college?: string) => Promise<{ success: boolean; message: string }>;
-  addCollege: (college: string) => { success: boolean; message: string };
-  removeCollege: (college: string) => { success: boolean; message: string };
+  addCollege: (college: string) => Promise<{ success: boolean; message: string }>;
+  removeCollege: (college: string) => Promise<{ success: boolean; message: string }>;
   logout: () => void;
   addStudent: (student: StudentRecord) => Promise<void>;
   importStudents: (newStudents: StudentRecord[]) => Promise<void>;
   deleteStudent: (id: string) => Promise<void>;
   updateStudent: (student: StudentRecord) => Promise<void>;
+  refreshStudents: () => Promise<void>;
+  refreshColleges: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -46,7 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(storedUser as User);
       }
 
-      await migrateRoleEnum();
+      await Promise.all([migrateRoleEnum(), ensureCollegesTable()]);
 
       const [dbStudents, dbColleges] = await Promise.all([
         getStudents(),
@@ -61,7 +67,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string) => {
-    const result = await loginUser(email, password);
+    const passwordHash = await hashPasswordClient(email, password);
+    const result = await loginUser(email, passwordHash);
     if (result.success && result.user) {
       saveAuthEmail(result.user.email);
       saveAuthUser({
@@ -77,7 +84,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const register = async (name: string, email: string, password: string, role: UserRole, college?: string) => {
-    const result = await registerUser(name, email, password, role, college);
+    const passwordHash = await hashPasswordClient(email, password);
+    const result = await registerUser(name, email, passwordHash, role, college);
     if (result.success && result.user) {
       saveAuthEmail(result.user.email);
       saveAuthUser({
@@ -91,32 +99,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { success: result.success, message: result.message };
   };
 
-  const addCollege = (college: string) => {
+  const addCollege = async (college: string) => {
     const normalized = college.trim();
     if (!normalized) {
       return { success: false, message: 'Please provide a valid college name.' };
     }
-    if (colleges.includes(normalized)) {
-      return { success: false, message: 'This college already exists.' };
+    const result = await addCollegeToDb(normalized);
+    if (result.success) {
+      setColleges(prev => [...prev, normalized].sort());
     }
-    setColleges([...colleges, normalized]);
-    return { success: true, message: 'College added successfully.' };
+    return result;
   };
 
-  const removeCollege = (college: string) => {
+  const removeCollege = async (college: string) => {
     const normalized = college.trim();
     if (!normalized) {
       return { success: false, message: 'Invalid college name.' };
-    }
-    if (!colleges.includes(normalized)) {
-      return { success: false, message: 'College not found.' };
     }
     const associatedStudents = students.filter((record) => record.college === normalized);
     if (associatedStudents.length > 0) {
       return { success: false, message: 'Cannot remove a college that still has students.' };
     }
-    setColleges(colleges.filter((item) => item !== normalized));
-    return { success: true, message: 'College removed successfully.' };
+    const result = await deleteCollegeFromDb(normalized, user?.name || user?.email);
+    if (result.success) {
+      setColleges(prev => prev.filter(c => c !== normalized));
+    }
+    return result;
   };
 
   const logout = () => {
@@ -141,7 +149,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const deleteStudent = async (id: string) => {
-    const result = await deleteStudentFromDb(id);
+    const result = await deleteStudentFromDb(id, user?.name || user?.email);
     if (result.success) {
       setStudents(students.filter((record) => record.id !== id));
     }
@@ -152,6 +160,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (result.success) {
       setStudents(students.map((r) => (r.id === student.id ? student : r)));
     }
+  };
+
+  const refreshStudents = async () => {
+    const dbStudents = await getStudents();
+    setStudents(dbStudents);
+  };
+
+  const refreshColleges = async () => {
+    const dbColleges = await getCollegesFromDb();
+    setColleges(dbColleges);
   };
 
   return (
@@ -169,6 +187,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       importStudents,
       deleteStudent,
       updateStudent,
+      refreshStudents,
+      refreshColleges,
     }}>
       {children}
     </AuthContext.Provider>

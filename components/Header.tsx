@@ -11,7 +11,7 @@ export function Header() {
   const { user, logout } = useAuth();
   const pathname = usePathname();
 
-  if (pathname === '/admin' || pathname === '/login' || pathname === '/faculty') return null;
+  if (pathname === '/admin' || pathname === '/login' || pathname === '/faculty' || pathname === '/faculty-admin') return null;
 
   const closeMenu = () => setIsOpen(false);
 

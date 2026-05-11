@@ -4,11 +4,13 @@ import { useState, useMemo } from 'react';
 import { StudentRecord } from '@/lib/types';
 import { FiSearch, FiChevronLeft, FiChevronRight, FiTrash2, FiMapPin, FiXCircle, FiEdit2 } from 'react-icons/fi';
 import StudentDetailsModal from './StudentDetailsModal';
+import ConfirmDialog from './ConfirmDialog';
 
 interface StudentTableProps {
   students: StudentRecord[];
   onDelete?: (id: string) => void;
   onEdit?: (student: StudentRecord) => void;
+  colleges?: string[];
 }
 
 function getPageNumbers(current: number, total: number): (number | '...')[] {
@@ -21,14 +23,20 @@ function getPageNumbers(current: number, total: number): (number | '...')[] {
   return pages;
 }
 
-export default function StudentTable({ students, onDelete, onEdit }: StudentTableProps) {
+export default function StudentTable({ students, onDelete, onEdit, colleges: collegesProp }: StudentTableProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedStudent, setSelectedStudent] = useState<StudentRecord | null>(null);
   const [itemsPerPage, setItemsPerPage] = useState(5);
   const [filterCollege, setFilterCollege] = useState<string | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
-  const uniqueColleges = useMemo(() => Array.from(new Set(students.map(s => s.college))), [students]);
+  const uniqueColleges = useMemo(() =>
+    collegesProp && collegesProp.length > 0
+      ? collegesProp
+      : Array.from(new Set(students.map(s => s.college))),
+    [students, collegesProp]
+  );
   const showCollegeFilter = uniqueColleges.length > 1;
 
   const filteredStudents = useMemo(() => {
@@ -208,7 +216,7 @@ export default function StudentTable({ students, onDelete, onEdit }: StudentTabl
                         )}
                         {onDelete && (
                           <button
-                            onClick={(e) => { e.stopPropagation(); onDelete(student.id); }}
+                            onClick={(e) => { e.stopPropagation(); setPendingDeleteId(student.id); }}
                             className="w-8 h-8 rounded bg-rose-50 text-rose-600 flex items-center justify-center hover:bg-rose-600 hover:text-white transition-all active:scale-95"
                             title="Delete"
                           >
@@ -301,6 +309,14 @@ export default function StudentTable({ students, onDelete, onEdit }: StudentTabl
       <StudentDetailsModal
         student={selectedStudent}
         onClose={() => setSelectedStudent(null)}
+      />
+
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title="Delete Student"
+        message="The student record will be soft-deleted. You can restore it later from the Deleted Students section."
+        onConfirm={() => { if (pendingDeleteId) onDelete?.(pendingDeleteId); setPendingDeleteId(null); }}
+        onCancel={() => setPendingDeleteId(null)}
       />
     </div>
   );

@@ -15,6 +15,7 @@ export interface DbUser {
   role: UserRole;
   college?: string | null;
   created_at: string;
+  deletedBy?: string | null;
 }
 
 export interface StudentRecord {
@@ -29,4 +30,5 @@ export interface StudentRecord {
   photo?: string;
   createdBy?: string;
   createdAt: string;
+  deletedBy?: string | null;
 }
