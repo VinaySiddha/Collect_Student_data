@@ -21,6 +21,8 @@ Open `http://localhost:3000`.
 
 ## Admin Access
 
+
+
 Default admin credentials:
 
 - Email: `admin@college.edu`
