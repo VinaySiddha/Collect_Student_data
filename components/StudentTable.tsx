@@ -40,30 +40,40 @@ export default function StudentTable({ students, onDelete, onEdit, colleges: col
   const showCollegeFilter = uniqueColleges.length > 1;
 
   const filteredStudents = useMemo(() => {
-    return students.filter((student) => {
-      const matchesSearch =
-        student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        student.studentId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        student.college.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesCollege = !filterCollege || student.college === filterCollege;
+    const q = searchTerm.toLowerCase();
+    return students.filter((s) => {
+      const matchesSearch = !q || [
+        s.name, s.studentId, s.college, s.parentage, s.rollNo,
+        s.studentClass, s.course, s.year, s.email, s.phone,
+        s.busStop, s.bloodGroup, s.createdBy,
+      ].some(v => v?.toLowerCase().includes(q));
+      const matchesCollege = !filterCollege || s.college === filterCollege;
       return matchesSearch && matchesCollege;
     });
   }, [students, searchTerm, filterCollege]);
 
-  const totalPages = Math.ceil(filteredStudents.length / itemsPerPage);
+  const totalPages = Math.max(1, Math.ceil(filteredStudents.length / itemsPerPage));
+  const safePage = Math.min(currentPage, totalPages);
   const paginatedStudents = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
+    const start = (safePage - 1) * itemsPerPage;
     return filteredStudents.slice(start, start + itemsPerPage);
-  }, [filteredStudents, currentPage, itemsPerPage]);
+  }, [filteredStudents, safePage, itemsPerPage]);
 
-  const resetFilters = () => {
-    setFilterCollege(null);
-    setSearchTerm('');
-    setCurrentPage(1);
-  };
-
+  const resetFilters = () => { setFilterCollege(null); setSearchTerm(''); setCurrentPage(1); };
   const hasActiveFilters = filterCollege || searchTerm;
-  const pageNumbers = getPageNumbers(currentPage, totalPages);
+  const pageNumbers = getPageNumbers(safePage, totalPages);
+
+  const Th = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
+    <th className={`px-3 py-3 text-left text-[0.6rem] font-black uppercase tracking-widest text-slate-400 whitespace-nowrap bg-slate-50 ${className}`}>
+      {children}
+    </th>
+  );
+
+  const Td = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
+    <td className={`px-3 py-3 align-top ${className}`}>
+      {children}
+    </td>
+  );
 
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:gap-6">
@@ -71,39 +81,30 @@ export default function StudentTable({ students, onDelete, onEdit, colleges: col
       {/* ── Institute filter ── */}
       {showCollegeFilter && (
         <div className="sm:w-44 sm:shrink-0">
-          {/* Desktop label */}
           <p className="hidden sm:flex items-center gap-1.5 text-[0.6rem] font-black uppercase tracking-widest text-slate-400 mb-3">
             <FiMapPin className="w-3 h-3" /> Institute
           </p>
 
-          {/* Mobile: horizontal scrollable chips */}
+          {/* Mobile chips */}
           <div className="flex gap-2 overflow-x-auto pb-1 sm:hidden">
             {uniqueColleges.map(college => (
               <button
                 key={college}
                 onClick={() => { setFilterCollege(prev => prev === college ? null : college); setCurrentPage(1); }}
-                className={`shrink-0 px-3 py-1.5 rounded text-xs font-bold transition whitespace-nowrap ${
-                  filterCollege === college
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
+                className={`shrink-0 px-3 py-1.5 rounded text-xs font-bold transition whitespace-nowrap ${filterCollege === college ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
               >
                 {college}
               </button>
             ))}
           </div>
 
-          {/* Desktop: vertical list */}
+          {/* Desktop list */}
           <div className="hidden sm:flex flex-col gap-1">
             {uniqueColleges.map(college => (
               <button
                 key={college}
                 onClick={() => { setFilterCollege(prev => prev === college ? null : college); setCurrentPage(1); }}
-                className={`w-full text-left px-3 py-2 rounded text-xs font-bold transition-all leading-snug ${
-                  filterCollege === college
-                    ? 'bg-slate-900 text-white shadow-sm'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
+                className={`w-full text-left px-3 py-2 rounded text-xs font-bold transition-all leading-snug ${filterCollege === college ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}
               >
                 {college}
               </button>
@@ -111,17 +112,14 @@ export default function StudentTable({ students, onDelete, onEdit, colleges: col
           </div>
 
           {hasActiveFilters && (
-            <button
-              onClick={resetFilters}
-              className="mt-2 sm:mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-rose-50 text-rose-600 border border-rose-100 font-black text-xs hover:bg-rose-100 transition"
-            >
+            <button onClick={resetFilters} className="mt-2 sm:mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-rose-50 text-rose-600 border border-rose-100 font-black text-xs hover:bg-rose-100 transition">
               <FiXCircle className="w-3.5 h-3.5" /> Clear
             </button>
           )}
         </div>
       )}
 
-      {/* ── Search + table + pagination ── */}
+      {/* ── Table area ── */}
       <div className="flex-1 space-y-3 min-w-0">
 
         {/* Search row */}
@@ -130,18 +128,14 @@ export default function StudentTable({ students, onDelete, onEdit, colleges: col
             <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 h-4 w-4" />
             <input
               type="text"
-              placeholder="Search name, ID or college…"
+              placeholder="Search name, ID, college, phone…"
               value={searchTerm}
               onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
               className="w-full pl-9 pr-4 py-2.5 rounded border border-slate-200 focus:border-slate-400 focus:outline-none transition bg-white shadow-sm font-medium text-sm"
             />
           </div>
-          {/* Inline clear on mobile when no college filter sidebar */}
           {hasActiveFilters && !showCollegeFilter && (
-            <button
-              onClick={resetFilters}
-              className="flex items-center gap-1.5 px-3 py-2.5 rounded bg-rose-50 text-rose-600 border border-rose-100 font-black text-xs hover:bg-rose-100 transition shrink-0"
-            >
+            <button onClick={resetFilters} className="flex items-center gap-1.5 px-3 py-2.5 rounded bg-rose-50 text-rose-600 border border-rose-100 font-black text-xs hover:bg-rose-100 transition shrink-0">
               <FiXCircle className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Clear</span>
             </button>
@@ -151,63 +145,139 @@ export default function StudentTable({ students, onDelete, onEdit, colleges: col
         {/* Table */}
         <div className="overflow-hidden rounded border border-slate-200/80 bg-white shadow-sm">
           <div className="overflow-x-auto">
-            <table className="min-w-full border-separate border-spacing-0 text-left text-sm text-slate-900">
-              <thead className="bg-slate-50 text-slate-500 font-black uppercase tracking-[0.12em] text-[0.6rem]">
+            <table className="border-separate border-spacing-0 text-left text-sm text-slate-900" style={{ minWidth: '1400px' }}>
+              <thead>
                 <tr>
-                  <th className="px-3 sm:px-6 py-3.5">Student</th>
-                  <th className="px-3 sm:px-6 py-3.5 hidden md:table-cell">Course</th>
-                  <th className="px-3 sm:px-6 py-3.5 hidden lg:table-cell">Contact</th>
-                  <th className="px-3 sm:px-6 py-3.5 text-right">Action</th>
+                  <Th className="sticky left-0 z-10 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">#</Th>
+                  <Th>Photo</Th>
+                  <Th>Photo ID</Th>
+                  <Th>Name</Th>
+                  <Th>Parentage</Th>
+                  <Th>Contact</Th>
+                  <Th>Roll No.</Th>
+                  <Th>Reg. ID</Th>
+                  <Th>Class</Th>
+                  <Th>Course</Th>
+                  <Th>Year</Th>
+                  <Th>Blood Group</Th>
+                  <Th>Email</Th>
+                  <Th>Bus Stop</Th>
+                  <Th>College</Th>
+                  <Th>Added By</Th>
+                  <Th>Date</Th>
+                  <Th className="text-right">Actions</Th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {paginatedStudents.map((student) => (
+                {paginatedStudents.map((s, idx) => (
                   <tr
-                    key={student.id}
-                    onClick={() => setSelectedStudent(student)}
-                    className="hover:bg-slate-50/60 transition cursor-pointer group"
+                    key={s.id}
+                    onClick={() => setSelectedStudent(s)}
+                    className="hover:bg-blue-50/40 transition cursor-pointer group"
                   >
-                    {/* Student info */}
-                    <td className="px-3 sm:px-6 py-3">
-                      <div className="flex items-center gap-2.5 sm:gap-4">
-                        <div className="h-9 w-9 sm:h-11 sm:w-11 overflow-hidden rounded bg-slate-100 border border-slate-200 shrink-0">
-                          {student.photo ? (
-                            <img src={student.photo} alt={student.name} className="h-full w-full object-cover group-hover:scale-110 transition duration-300" />
-                          ) : (
-                            <div className="flex h-full items-center justify-center text-[0.45rem] text-slate-400 font-black uppercase">No Img</div>
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-black text-slate-900 text-sm leading-tight truncate max-w-[140px] sm:max-w-none">{student.name}</p>
-                          <p className="text-[0.6rem] text-cyan-600 font-black tracking-widest uppercase mt-0.5">{student.studentId}</p>
-                          <p className="text-[0.6rem] text-slate-500 font-bold mt-0.5 md:hidden truncate max-w-[140px]">{student.course}</p>
-                        </div>
-                      </div>
-                    </td>
+                    {/* # */}
+                    <Td className="sticky left-0 z-10 bg-white group-hover:bg-blue-50/40 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
+                      <span className="text-xs font-black text-slate-400">
+                        {(safePage - 1) * itemsPerPage + idx + 1}
+                      </span>
+                    </Td>
 
-                    {/* Course + college */}
-                    <td className="px-3 sm:px-6 py-3 hidden md:table-cell">
-                      <p className="font-bold text-slate-700 text-sm">{student.course}</p>
-                      <p className="text-[0.6rem] text-slate-400 font-bold uppercase tracking-widest mt-0.5 truncate max-w-[160px]">
-                        {student.college} · Yr {student.year}
-                      </p>
-                    </td>
+                    {/* Photo */}
+                    <Td>
+                      <div className="w-10 h-10 rounded overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
+                        {s.photo ? (
+                          <img src={s.photo} alt={s.name} className="w-full h-full object-cover group-hover:scale-110 transition duration-300" />
+                        ) : (
+                          <div className="flex h-full items-center justify-center text-[0.45rem] text-slate-400 font-black uppercase">No Img</div>
+                        )}
+                      </div>
+                    </Td>
+
+                    {/* Photo ID */}
+                    <Td>
+                      {s.photoId
+                        ? <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 text-xs font-black border border-blue-100">{s.photoId}.png</span>
+                        : <span className="text-slate-300 text-xs">—</span>}
+                    </Td>
+
+                    {/* Name */}
+                    <Td>
+                      <p className="font-black text-slate-900 whitespace-nowrap">{s.name}</p>
+                    </Td>
+
+                    {/* Parentage */}
+                    <Td>
+                      <p className="text-slate-600 font-medium whitespace-nowrap">{s.parentage || <span className="text-slate-300">—</span>}</p>
+                    </Td>
 
                     {/* Contact */}
-                    <td className="px-3 sm:px-6 py-3 hidden lg:table-cell">
-                      <p className="text-slate-600 font-bold text-sm truncate max-w-[180px]">{student.email}</p>
-                      <p className="text-[0.6rem] text-slate-400 font-bold uppercase tracking-widest mt-0.5 flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded bg-emerald-500 shrink-0" />
-                        {new Date(student.createdAt).toLocaleDateString()}
-                      </p>
-                    </td>
+                    <Td>
+                      <p className="font-bold text-slate-700 whitespace-nowrap">{s.phone}</p>
+                    </Td>
 
-                    {/* Action */}
-                    <td className="px-3 sm:px-6 py-3">
+                    {/* Roll No. */}
+                    <Td>
+                      <p className="text-slate-600 font-medium whitespace-nowrap">{s.rollNo || <span className="text-slate-300">—</span>}</p>
+                    </Td>
+
+                    {/* Reg. ID */}
+                    <Td>
+                      <p className="text-cyan-600 font-black text-xs tracking-widest whitespace-nowrap">{s.studentId || <span className="text-slate-300 tracking-normal">—</span>}</p>
+                    </Td>
+
+                    {/* Class */}
+                    <Td>
+                      <p className="text-slate-600 font-medium whitespace-nowrap">{s.studentClass || <span className="text-slate-300">—</span>}</p>
+                    </Td>
+
+                    {/* Course */}
+                    <Td>
+                      <p className="text-slate-700 font-bold whitespace-nowrap">{s.course || <span className="text-slate-300 font-medium">—</span>}</p>
+                    </Td>
+
+                    {/* Year */}
+                    <Td>
+                      <p className="text-slate-600 font-medium whitespace-nowrap">{s.year || <span className="text-slate-300">—</span>}</p>
+                    </Td>
+
+                    {/* Blood Group */}
+                    <Td>
+                      {s.bloodGroup
+                        ? <span className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-600 text-xs font-black border border-rose-100">{s.bloodGroup}</span>
+                        : <span className="text-slate-300 text-xs">—</span>}
+                    </Td>
+
+                    {/* Email */}
+                    <Td>
+                      <p className="text-slate-600 font-medium whitespace-nowrap">{s.email || <span className="text-slate-300">—</span>}</p>
+                    </Td>
+
+                    {/* Bus Stop */}
+                    <Td>
+                      <p className="text-slate-600 font-medium whitespace-nowrap">{s.busStop || <span className="text-slate-300">—</span>}</p>
+                    </Td>
+
+                    {/* College */}
+                    <Td>
+                      <p className="text-slate-500 font-bold text-xs whitespace-nowrap">{s.college}</p>
+                    </Td>
+
+                    {/* Added By */}
+                    <Td>
+                      <p className="text-slate-500 font-medium text-xs whitespace-nowrap">{s.createdBy || '—'}</p>
+                    </Td>
+
+                    {/* Date */}
+                    <Td>
+                      <p className="text-slate-400 font-medium text-xs whitespace-nowrap">{new Date(s.createdAt).toLocaleDateString()}</p>
+                    </Td>
+
+                    {/* Actions */}
+                    <Td className="text-right">
                       <div className="flex justify-end gap-1.5">
                         {onEdit && (
                           <button
-                            onClick={(e) => { e.stopPropagation(); onEdit(student); }}
+                            onClick={(e) => { e.stopPropagation(); onEdit(s); }}
                             className="w-8 h-8 rounded bg-blue-50 text-blue-600 flex items-center justify-center hover:bg-blue-600 hover:text-white transition-all active:scale-95"
                             title="Edit"
                           >
@@ -216,7 +286,7 @@ export default function StudentTable({ students, onDelete, onEdit, colleges: col
                         )}
                         {onDelete && (
                           <button
-                            onClick={(e) => { e.stopPropagation(); setPendingDeleteId(student.id); }}
+                            onClick={(e) => { e.stopPropagation(); setPendingDeleteId(s.id); }}
                             className="w-8 h-8 rounded bg-rose-50 text-rose-600 flex items-center justify-center hover:bg-rose-600 hover:text-white transition-all active:scale-95"
                             title="Delete"
                           >
@@ -224,13 +294,13 @@ export default function StudentTable({ students, onDelete, onEdit, colleges: col
                           </button>
                         )}
                       </div>
-                    </td>
+                    </Td>
                   </tr>
                 ))}
 
                 {filteredStudents.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-6 py-16 text-center">
+                    <td colSpan={18} className="px-6 py-16 text-center">
                       <div className="flex flex-col items-center gap-3">
                         <div className="w-12 h-12 bg-slate-50 rounded flex items-center justify-center text-xl">🔍</div>
                         <div>
@@ -263,7 +333,7 @@ export default function StudentTable({ students, onDelete, onEdit, colleges: col
               </div>
               <p className="text-[0.6rem] font-bold text-slate-500 uppercase tracking-widest">
                 <span className="text-slate-900 font-black">
-                  {filteredStudents.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, filteredStudents.length)}
+                  {filteredStudents.length === 0 ? 0 : (safePage - 1) * itemsPerPage + 1}–{Math.min(safePage * itemsPerPage, filteredStudents.length)}
                 </span>{' '}
                 of <span className="text-slate-900 font-black">{filteredStudents.length}</span>
               </p>
@@ -273,7 +343,7 @@ export default function StudentTable({ students, onDelete, onEdit, colleges: col
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
+                  disabled={safePage === 1}
                   className="p-1.5 rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-900 hover:text-white disabled:opacity-30 transition-all"
                 >
                   <FiChevronLeft className="w-3.5 h-3.5" />
@@ -285,9 +355,7 @@ export default function StudentTable({ students, onDelete, onEdit, colleges: col
                     : <button
                         key={page}
                         onClick={() => setCurrentPage(page as number)}
-                        className={`w-7 h-7 rounded text-[0.65rem] font-black transition-all ${
-                          currentPage === page ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100'
-                        }`}
+                        className={`w-7 h-7 rounded text-[0.65rem] font-black transition-all ${safePage === page ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100'}`}
                       >
                         {page}
                       </button>
@@ -295,7 +363,7 @@ export default function StudentTable({ students, onDelete, onEdit, colleges: col
 
                 <button
                   onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
+                  disabled={safePage === totalPages}
                   className="p-1.5 rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-900 hover:text-white disabled:opacity-30 transition-all"
                 >
                   <FiChevronRight className="w-3.5 h-3.5" />
