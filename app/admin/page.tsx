@@ -6,9 +6,11 @@ import { useAuth } from '@/components/AuthProvider';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 import StudentTable from '@/components/StudentTable';
 import ConfirmDialog from '@/components/ConfirmDialog';
-import { FiUsers, FiDownload, FiPlus, FiTrash2, FiMapPin, FiLogOut, FiLayout, FiUser, FiMail, FiLock, FiBook, FiChevronDown, FiChevronLeft, FiChevronRight, FiSearch, FiMenu, FiX, FiEdit2, FiSave, FiRotateCcw } from 'react-icons/fi';
+import { FiUsers, FiDownload, FiPlus, FiTrash2, FiMapPin, FiLogOut, FiLayout, FiUser, FiMail, FiLock, FiBook, FiChevronDown, FiChevronLeft, FiChevronRight, FiSearch, FiMenu, FiX, FiEdit2, FiSave, FiRotateCcw, FiArchive } from 'react-icons/fi';
 import { GoSidebarExpand, GoSidebarCollapse } from 'react-icons/go';
 import {
   registerUser, getUsers, deleteUser, updateUser, changeMyPassword,
@@ -256,6 +258,68 @@ export default function AdminPage() {
     }
   };
 
+  const collegeSlug = (college: string) =>
+    college.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+
+  const exportZip = async () => {
+    if (students.length === 0) {
+      setMessage({ text: 'No student records to export.', type: 'error' }); return;
+    }
+    setMessage({ text: 'Preparing export…', type: 'success' });
+
+    const sorted = [...students].sort((a, b) => {
+      if (a.photoId && b.photoId) return a.photoId - b.photoId;
+      if (a.photoId) return -1;
+      if (b.photoId) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    const zip    = new JSZip();
+    const photos = zip.folder('photos')!;
+
+    const ws = XLSX.utils.json_to_sheet(sorted.map((s, i) => ({
+      '#':           i + 1,
+      'Photo ID':    s.photoId ? `${s.photoId}.png` : '',
+      Name:          s.name,
+      Parentage:     s.parentage    || '',
+      'Student ID':  s.studentId    || '',
+      'Roll No.':    s.rollNo       || '',
+      Class:         s.studentClass || '',
+      College:       s.college,
+      Course:        s.course       || '',
+      Year:          s.year         || '',
+      Email:         s.email        || '',
+      Phone:         s.phone,
+      'Bus Stop':    s.busStop      || '',
+      'Blood Group': s.bloodGroup   || '',
+      'Added By':    s.createdBy    || 'Unknown',
+      'Created At':  new Date(s.createdAt).toLocaleDateString(),
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Students');
+    zip.file('students.xlsx', XLSX.write(wb, { bookType: 'xlsx', type: 'array' }));
+
+    let photoCount = 0;
+    for (const s of sorted) {
+      if (!s.photoId) continue;
+      if (s.photo) {
+        const base64 = s.photo.replace(/^data:image\/\w+;base64,/, '');
+        photos.file(`${s.photoId}.png`, base64, { base64: true });
+        photoCount++;
+      } else {
+        try {
+          const resp = await fetch(`/student-photos/${collegeSlug(s.college)}/${s.photoId}.png`);
+          if (resp.ok) { photos.file(`${s.photoId}.png`, await resp.blob()); photoCount++; }
+        } catch { /* skip */ }
+      }
+    }
+
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+    saveAs(blob, `admin-export-${new Date().toISOString().slice(0, 10)}.zip`);
+    setMessage({ text: `Exported ${sorted.length} students · ${photoCount} photo${photoCount !== 1 ? 's' : ''} in photos/ folder.`, type: 'success' });
+    setTimeout(() => setMessage(null), 5000);
+  };
+
   const exportExcel = () => {
     const worksheet = XLSX.utils.json_to_sheet(
       students.map((item) => ({
@@ -482,11 +546,18 @@ export default function AdminPage() {
                   <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">{students.length} students in registry</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <button onClick={exportExcel} className="p-2 sm:p-2.5 bg-white border border-slate-200 rounded text-slate-600 hover:bg-slate-50 transition shadow-sm" title="Export Excel">
-                    <FiDownload className="w-4 h-4" />
+                  <button onClick={exportZip} className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-slate-900 text-white rounded font-black text-sm hover:bg-green-700 transition shadow-sm active:scale-95">
+                    <FiArchive className="w-4 h-4 shrink-0" />
+                    <span className="hidden sm:inline">Export ZIP</span>
+                    <span className="sm:hidden">ZIP</span>
                   </button>
-                  <button onClick={exportPDF} className="p-2 sm:p-2.5 bg-white border border-slate-200 rounded text-slate-600 hover:bg-slate-50 transition shadow-sm" title="Export PDF">
-                    <FiUsers className="w-4 h-4" />
+                  <button onClick={exportExcel} className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-white border border-slate-200 rounded font-black text-sm text-slate-600 hover:bg-slate-50 transition shadow-sm active:scale-95">
+                    <FiDownload className="w-4 h-4 shrink-0" />
+                    <span className="hidden sm:inline">Excel</span>
+                  </button>
+                  <button onClick={exportPDF} className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-white border border-slate-200 rounded font-black text-sm text-slate-600 hover:bg-slate-50 transition shadow-sm active:scale-95">
+                    <FiUsers className="w-4 h-4 shrink-0" />
+                    <span className="hidden sm:inline">PDF</span>
                   </button>
                 </div>
               </div>
