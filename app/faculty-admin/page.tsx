@@ -17,15 +17,13 @@ import {
   getDeletedUsersByCollege,
   restoreUserInDb,
 } from '@/lib/actions';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { DbUser, StudentRecord } from '@/lib/types';
 import {
   FiLayout, FiUsers, FiLogOut, FiPlus, FiTrash2, FiUser, FiMail,
   FiLock, FiMenu, FiX, FiDownload, FiChevronDown, FiMapPin, FiShield,
-  FiUserPlus, FiUpload, FiRotateCcw, FiCamera, FiArchive,
+  FiUserPlus, FiUpload, FiRotateCcw, FiCamera, FiArchive, FiRefreshCw,
 } from 'react-icons/fi';
 import { hashPasswordClient } from '@/lib/clientHash';
 import { GoSidebarExpand, GoSidebarCollapse } from 'react-icons/go';
@@ -44,6 +42,12 @@ export default function FacultyAdminPage() {
   // College-scoped students
   const [students, setStudents] = useState<StudentRecord[]>([]);
   const [studentsLoading, setStudentsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [confirmStudent, setConfirmStudent] = useState<StudentRecord | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
+  const [excelFile, setExcelFile] = useState<File | null>(null);
 
   // Faculty management
   const [facultyUsers, setFacultyUsers] = useState<DbUser[]>([]);
@@ -82,12 +86,13 @@ export default function FacultyAdminPage() {
     if (user.role !== 'faculty_admin') { router.push('/faculty'); return; }
   }, [user, initialized, router]);
 
-  // Load college's students
+  // Load college's students — also seed the registration counter from existing count
   useEffect(() => {
     if (!user?.college) return;
     setStudentsLoading(true);
     getStudentsByCollege(user.college).then(data => {
       setStudents(data);
+      setSubmissionCount(data.length);
       setStudentsLoading(false);
     });
   }, [user?.college]);
@@ -132,24 +137,17 @@ export default function FacultyAdminPage() {
     }
   };
 
-  const handleDeleteStudent = (id: string) => {
-    setConfirmDialog({
-      title: 'Delete Student',
-      message: 'The student record will be soft-deleted. You can restore it later from the Deleted Students section.',
-      onConfirm: async () => {
-        const deletedBy = user?.name || user?.email;
-        const result = await deleteStudentFromDb(id, deletedBy);
-        if (result.success) {
-          const removed = students.find(s => s.id === id);
-          setStudents(prev => prev.filter(s => s.id !== id));
-          if (removed) setDeletedStudents(prev => [{ ...removed, deletedBy: deletedBy || null }, ...prev]);
-          showToast('Student removed.', 'success');
-        } else {
-          showToast('Failed to remove student.', 'error');
-        }
-        setConfirmDialog(null);
-      },
-    });
+  const handleDeleteStudent = async (id: string) => {
+    const deletedBy = user?.name || user?.email;
+    const result = await deleteStudentFromDb(id, deletedBy);
+    if (result.success) {
+      const removed = students.find(s => s.id === id);
+      setStudents(prev => prev.filter(s => s.id !== id));
+      if (removed) setDeletedStudents(prev => [{ ...removed, deletedBy: deletedBy || null }, ...prev]);
+      showToast('Student removed.', 'success');
+    } else {
+      showToast('Failed to remove student.', 'error');
+    }
   };
 
   const handleCreateFaculty = async () => {
@@ -188,20 +186,12 @@ export default function FacultyAdminPage() {
     });
   };
 
-  const collegeSlug = (college: string) =>
-    college.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-
-  const sortedStudents = [...students].sort((a, b) => {
-    if (a.photoId && b.photoId) return a.photoId - b.photoId;
-    if (a.photoId) return -1;
-    if (b.photoId) return 1;
-    return a.name.localeCompare(b.name);
-  });
+  const sortedStudents = [...students].sort((a, b) => a.name.localeCompare(b.name));
 
   const exportExcel = () => {
     const ws = XLSX.utils.json_to_sheet(sortedStudents.map((s, i) => ({
       '#':           i + 1,
-      'Photo ID':    s.photoId ? `${s.photoId}.png` : '',
+      'Photo':       s.photo ? `${i + 1}.png` : '',
       Name:          s.name,
       Parentage:     s.parentage    || '',
       'Student ID':  s.studentId    || '',
@@ -233,7 +223,7 @@ export default function FacultyAdminPage() {
 
     const ws = XLSX.utils.json_to_sheet(sortedStudents.map((s, i) => ({
       '#':           i + 1,
-      'Photo ID':    s.photoId ? `${s.photoId}.png` : '',
+      'Photo':       s.photo ? `${i + 1}.png` : '',
       Name:          s.name,
       Parentage:     s.parentage    || '',
       'Student ID':  s.studentId    || '',
@@ -254,18 +244,11 @@ export default function FacultyAdminPage() {
     zip.file('students.xlsx', XLSX.write(wb, { bookType: 'xlsx', type: 'array' }));
 
     let photoCount = 0;
-    for (const s of sortedStudents) {
-      if (!s.photoId) continue;
-      if (s.photo) {
-        photos.file(`${s.photoId}.png`, s.photo.replace(/^data:image\/\w+;base64,/, ''), { base64: true });
-        photoCount++;
-      } else {
-        try {
-          const resp = await fetch(`/student-photos/${collegeSlug(s.college)}/${s.photoId}.png`);
-          if (resp.ok) { photos.file(`${s.photoId}.png`, await resp.blob()); photoCount++; }
-        } catch { /* skip */ }
-      }
-    }
+    sortedStudents.forEach((s, i) => {
+      if (!s.photo) return;
+      photos.file(`${i + 1}.png`, s.photo.replace(/^data:image\/\w+;base64,/, ''), { base64: true });
+      photoCount++;
+    });
 
     const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
     saveAs(blob, `${user?.college ?? 'College'}_export_${new Date().toISOString().slice(0, 10)}.zip`);
@@ -337,14 +320,14 @@ export default function FacultyAdminPage() {
     setCameraOpen(false);
   };
 
-  const createStudent = async (e: React.FormEvent<HTMLFormElement>) => {
+  const createStudent = (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!user?.college) { setNotice({ message: 'No college associated with your account.', type: 'error' }); return; }
     if (!form.name.trim())      { setNotice({ message: 'Student Name is required.', type: 'error' }); return; }
     if (!form.parentage.trim()) { setNotice({ message: 'Parentage is required.', type: 'error' }); return; }
     if (!form.phone.trim())     { setNotice({ message: 'Contact Number is required.', type: 'error' }); return; }
 
-    const record: StudentRecord = {
+    setConfirmStudent({
       id:           `${Date.now()}`,
       college:      user.college,
       name:         form.name,
@@ -361,96 +344,117 @@ export default function FacultyAdminPage() {
       photo:        photoPreview      || undefined,
       createdBy:    user?.name || user?.email || 'Unknown',
       createdAt:    new Date().toISOString(),
-    };
+    });
+  };
 
-    const result = await addStudentToDb(record);
-    if (result.success) {
-      setStudents(prev => [record, ...prev]);
-      const newCount = submissionCount + 1;
-      setSubmissionCount(newCount);
-      setNotice({ message: `Student No. ${newCount} registered successfully.`, type: 'success' });
-      setForm(EMPTY_FORM);
-      setPhotoPreview(null);
-      setUploadFile(null);
-      setTimeout(() => setNotice(null), 4000);
-    } else {
-      setNotice({ message: 'Failed to save student record.', type: 'error' });
+  const confirmAndSubmit = async () => {
+    if (!confirmStudent) return;
+    setSubmitting(true);
+    try {
+      const result = await addStudentToDb(confirmStudent);
+      if (result.success) {
+        setStudents(prev => {
+          const updated = [confirmStudent, ...prev];
+          setSubmissionCount(updated.length);
+          return updated;
+        });
+        setConfirmStudent(null);
+        setForm(EMPTY_FORM);
+        setPhotoPreview(null);
+        setUploadFile(null);
+        showToast('Student registered successfully.', 'success');
+      } else {
+        setConfirmStudent(null);
+        showToast('Failed to save student record.', 'error');
+      }
+    } catch {
+      setConfirmStudent(null);
+      showToast('Failed to save student record. Please try again.', 'error');
     }
+    setSubmitting(false);
   };
 
   const handleExcelUpload = async () => {
-    if (!uploadFile) { setNotice({ message: 'Select an Excel file first.', type: 'error' }); return; }
+    if (!excelFile) { showToast('Select an Excel file first.', 'error'); return; }
+    setImportLoading(true);
     try {
-      const data  = await uploadFile.arrayBuffer();
-      const wb    = XLSX.read(data, { type: 'array' });
-      const ws    = wb.Sheets[wb.SheetNames[0]];
-      const rows  = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' });
+      const data = await excelFile.arrayBuffer();
+      const wb   = XLSX.read(data, { type: 'array' });
+      const ws   = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' });
       const [headers, ...values] = rows;
       if (!headers || !Array.isArray(headers)) {
-        setNotice({ message: 'Excel file appears empty or invalid.', type: 'error' }); return;
+        showToast('Excel file appears empty or invalid.', 'error');
+        setImportLoading(false); return;
       }
+      // Normalise header names — handles both template format and exported format
       const norm = headers.map(h => String(h ?? '').trim().toLowerCase());
-      const records: StudentRecord[] = values.map(row => {
+      // Skip rows that are completely empty
+      const dataRows = values.filter(r => Array.isArray(r) && r.some(v => String(v ?? '').trim()));
+      if (dataRows.length === 0) {
+        showToast('No data rows found in the file.', 'error');
+        setImportLoading(false); return;
+      }
+      const records: StudentRecord[] = dataRows.map(row => {
         const e = Array.isArray(row)
-          ? row.reduce<Record<string, string>>((acc, v, i) => { acc[norm[i] ?? ''] = String(v ?? ''); return acc; }, {})
+          ? row.reduce<Record<string, string>>((acc, v, i) => { acc[norm[i] ?? ''] = String(v ?? '').trim(); return acc; }, {})
           : {};
         return {
           id:           `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           college:      user?.college || '',
-          name:         e.name || 'Unnamed Student',
-          parentage:    e.parentage              || undefined,
-          studentId:    e['student id'] || e.studentid || undefined,
-          rollNo:       e['roll no.']   || e.rollno    || undefined,
-          studentClass: e.class                  || undefined,
-          course:       e.course                 || undefined,
-          year:         e.year                   || undefined,
-          email:        e.email                  || undefined,
-          phone:        e.phone || 'N/A',
-          busStop:      e['bus stop']            || undefined,
-          bloodGroup:   e['blood group']         || undefined,
+          name:         e.name        || 'Unnamed Student',
+          parentage:    e.parentage   || undefined,
+          studentId:    e['student id']  || e.studentid   || undefined,
+          rollNo:       e['roll no.']    || e['roll no']   || e.rollno   || undefined,
+          studentClass: e.class          || e['class']     || undefined,
+          course:       e.course         || undefined,
+          year:         e.year           || undefined,
+          email:        e.email          || undefined,
+          phone:        e.phone          || '',
+          busStop:      e['bus stop']    || undefined,
+          bloodGroup:   e['blood group'] || undefined,
           createdBy:    user?.name || user?.email || 'Imported',
           createdAt:    new Date().toISOString(),
         };
       });
-      for (const record of records) await addStudentToDb(record);
-      setStudents(prev => [...records, ...prev]);
-      setNotice({ message: `${records.length} records imported successfully.`, type: 'success' });
-      setUploadFile(null);
-      setTimeout(() => setNotice(null), 3000);
+      let saved = 0;
+      for (const record of records) {
+        const result = await addStudentToDb(record);
+        if (result.success) saved++;
+      }
+      setStudents(prev => [...records.slice(0, saved), ...prev]);
+      setSubmissionCount(c => c + saved);
+      setExcelFile(null);
+      setBulkImportOpen(false);
+      showToast(`${saved} of ${records.length} records imported successfully.`, 'success');
     } catch {
-      setNotice({ message: 'Failed to parse Excel file.', type: 'error' });
+      showToast('Failed to parse Excel file. Make sure it is a valid .xlsx file.', 'error');
     }
+    setImportLoading(false);
   };
 
   const downloadTemplate = () => {
-    const ws = XLSX.utils.json_to_sheet([{
-      Name: 'John Doe', Parentage: 'S/O Robert Doe',
-      'Student ID': 'STU-001', 'Roll No.': '42', Class: '10th',
-      Course: 'Computer Science', Year: '2024',
-      Email: 'john@college.edu', Phone: '+91 98765 43210',
-      'Bus Stop': 'Main Bus Stand', 'Blood Group': 'O+',
-    }]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Students');
-    XLSX.writeFile(wb, 'student-import-template.xlsx');
+    const ws = XLSX.utils.json_to_sheet([
+      {
+        Name: 'Raju Kumar',   Parentage: 'S/O Ram Kumar',    'Student ID': 'STU-001',
+        'Roll No.': '01',     Class: 'B.Tech 1st Year',       Course: 'Computer Science',
+        Year: '2024-25',      Email: 'raju@example.com',       Phone: '9876543210',
+        'Bus Stop': 'Main Bus Stand',  'Blood Group': 'O+',
+      },
+      {
+        Name: 'Priya Sharma', Parentage: 'D/O Mohan Sharma', 'Student ID': 'STU-002',
+        'Roll No.': '02',     Class: 'B.Tech 1st Year',       Course: 'Electronics',
+        Year: '2024-25',      Email: 'priya@example.com',      Phone: '9876543211',
+        'Bus Stop': 'City Center',     'Blood Group': 'A+',
+      },
+    ]);
+    // Auto-fit column widths
+    ws['!cols'] = [20,22,14,10,18,20,10,26,14,18,12].map(w => ({ wch: w }));
+    const wbOut = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wbOut, ws, 'Students');
+    XLSX.writeFile(wbOut, 'student-import-template.xlsx');
   };
 
-  const exportPDF = async () => {
-    const el = document.getElementById('fa-registry-section');
-    if (!el) return;
-    setNotice({ message: 'Generating PDF…', type: 'success' });
-    const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#fcfdfe' });
-    const imgData = canvas.toDataURL('image/png');
-    const pdf = new jsPDF('portrait', 'px', 'a4');
-    const pw = pdf.internal.pageSize.getWidth();
-    const ph = pdf.internal.pageSize.getHeight();
-    const props = pdf.getImageProperties(imgData);
-    const ratio = Math.min(pw / props.width, ph / props.height);
-    pdf.addImage(imgData, 'PNG', 0, 0, props.width * ratio, props.height * ratio);
-    pdf.save(`${user?.college ?? 'College'}_Registry_${new Date().toISOString().slice(0, 10)}.pdf`);
-    setNotice({ message: 'PDF exported successfully!', type: 'success' });
-    setTimeout(() => setNotice(null), 3000);
-  };
 
   if (!initialized || !user || user.role !== 'faculty_admin') return null;
 
@@ -594,6 +598,15 @@ export default function FacultyAdminPage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={async () => { if (!user?.college) return; setRefreshing(true); const data = await getStudentsByCollege(user.college); setStudents(data); setRefreshing(false); }}
+                    disabled={refreshing}
+                    title="Refresh data"
+                    className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-white border border-slate-200 rounded font-black text-sm text-slate-600 hover:bg-slate-50 transition shadow-sm active:scale-95 disabled:opacity-60"
+                  >
+                    <FiRefreshCw className={`w-4 h-4 shrink-0 ${refreshing ? 'animate-spin' : ''}`} />
+                    <span className="hidden sm:inline">Refresh</span>
+                  </button>
                   <button onClick={exportZip} className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-slate-900 text-white rounded font-black text-sm hover:bg-violet-600 transition shadow-sm active:scale-95">
                     <FiArchive className="w-4 h-4 shrink-0" />
                     <span className="hidden sm:inline">Export ZIP</span>
@@ -680,15 +693,23 @@ export default function FacultyAdminPage() {
           {/* ── Register ── */}
           {activeView === 'register' && (
             <div className="space-y-6">
-              <div>
-                <h1 className="text-xl sm:text-2xl font-black text-slate-900">Register Students</h1>
-                <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">Add new students manually or import via Excel</p>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h1 className="text-xl sm:text-2xl font-black text-slate-900">Register Students</h1>
+                  <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">Add students manually or bulk-import via Excel</p>
+                </div>
+                <button
+                  onClick={() => { setExcelFile(null); setBulkImportOpen(true); }}
+                  className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-white border border-slate-200 rounded font-black text-sm text-slate-600 hover:bg-violet-50 hover:border-violet-300 hover:text-violet-600 transition shadow-sm active:scale-95 shrink-0"
+                >
+                  <FiUpload className="w-4 h-4 shrink-0" />
+                  <span className="hidden sm:inline">Bulk Import</span>
+                  <span className="sm:hidden">Import</span>
+                </button>
               </div>
 
-              <div className="grid gap-6 md:grid-cols-[1.1fr_0.9fr]">
-
-                {/* ── Manual form ── */}
-                <div className="bg-white rounded border border-slate-200 shadow-sm p-4 lg:p-6">
+              {/* ── Manual form ── */}
+              <div className="bg-white rounded border border-slate-200 shadow-sm p-4 lg:p-6">
 
                   <div className="flex items-start gap-3 mb-6">
                     <div className="bg-violet-500 p-2.5 rounded text-white shrink-0">
@@ -698,9 +719,9 @@ export default function FacultyAdminPage() {
                       <h2 className="text-base font-black text-slate-900">Manual Registration</h2>
                       <p className="text-xs text-slate-500 mt-0.5">Fields marked * are required</p>
                     </div>
-                    {submissionCount > 0 && (
+                    {!studentsLoading && (
                       <div className="shrink-0 text-right bg-violet-50 border border-violet-100 rounded-lg px-3 py-2">
-                        <p className="text-[0.55rem] font-black uppercase tracking-widest text-violet-500">Student No.</p>
+                        <p className="text-[0.55rem] font-black uppercase tracking-widest text-violet-500">Total Students</p>
                         <p className="text-xl font-black text-violet-700 leading-none">{submissionCount}</p>
                       </div>
                     )}
@@ -809,66 +830,12 @@ export default function FacultyAdminPage() {
                       </p>
                     )}
 
-                    <button type="submit" className="w-full bg-violet-500 text-white font-black py-3.5 rounded hover:bg-violet-600 transition shadow-sm active:scale-95 text-sm">
-                      Register Student Profile
+                    <button type="submit" className="w-full bg-violet-500 text-white font-black py-3.5 rounded hover:bg-violet-600 transition shadow-sm active:scale-95 text-sm flex items-center justify-center gap-2">
+                      <FiUserPlus className="w-4 h-4" /> Review &amp; Register
                     </button>
                   </form>
                 </div>
 
-                {/* ── Bulk + Export ── */}
-                <div className="space-y-6">
-                  <div className="bg-white rounded border border-slate-200 shadow-sm p-4 lg:p-6">
-                    <div className="flex items-center gap-3 mb-5">
-                      <div className="bg-violet-500 p-2.5 rounded text-white shrink-0">
-                        <FiUpload className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h2 className="text-base font-black text-slate-900">Bulk Import</h2>
-                        <p className="text-xs text-slate-500 mt-0.5">Batch process Excel data sheets</p>
-                      </div>
-                    </div>
-                    <div className="space-y-3">
-                      <button type="button" onClick={downloadTemplate} className="w-full flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-black py-2.5 rounded hover:bg-violet-50 hover:border-violet-300 hover:text-violet-600 transition text-sm">
-                        <FiDownload className="w-4 h-4" /> Download Excel Template
-                      </button>
-                      <div className="relative group">
-                        <input type="file" accept=".xlsx,.xls" onChange={e => setUploadFile(e.target.files?.[0] ?? null)} className="opacity-0 absolute inset-0 w-full h-full z-10 cursor-pointer" />
-                        <div className="p-8 rounded border-2 border-dashed border-slate-200 group-hover:border-violet-500 transition bg-slate-50/50 text-center space-y-2">
-                          <FiUpload className="w-6 h-6 mx-auto text-slate-300 group-hover:text-violet-500 transition" />
-                          <p className="text-sm font-bold text-slate-500">{uploadFile ? uploadFile.name : 'Drop Excel File Here'}</p>
-                          <p className="text-xs text-slate-400">Click to browse</p>
-                        </div>
-                      </div>
-                      <button type="button" onClick={handleExcelUpload} className="w-full bg-slate-900 text-white font-black py-3 rounded hover:bg-violet-600 transition shadow-sm text-sm active:scale-95">
-                        Process All Records
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-900 rounded border border-slate-800 p-4 lg:p-6 text-white">
-                    <div className="flex items-center gap-3 mb-5">
-                      <div className="bg-white/10 p-2.5 rounded border border-white/10 text-violet-400 shrink-0">
-                        <FiDownload className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h2 className="text-base font-black text-white">Export</h2>
-                        <p className="text-xs text-white/50 mt-0.5">Download student data</p>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <button type="button" onClick={exportZip} className="bg-white text-slate-900 font-black py-3 rounded hover:bg-slate-100 transition text-sm flex items-center justify-center gap-1.5 active:scale-95">
-                        <FiArchive className="w-4 h-4" /> ZIP
-                      </button>
-                      <button type="button" onClick={exportExcel} className="bg-slate-800 text-white font-black py-3 rounded hover:bg-slate-700 transition border border-white/10 text-sm flex items-center justify-center gap-1.5 active:scale-95">
-                        <FiDownload className="w-4 h-4" /> Excel
-                      </button>
-                      <button type="button" onClick={exportPDF} className="bg-slate-800 text-white font-black py-3 rounded hover:bg-slate-700 transition border border-white/10 text-sm flex items-center justify-center gap-1.5 active:scale-95">
-                        <FiDownload className="w-4 h-4" /> PDF
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
 
@@ -1086,6 +1053,163 @@ export default function FacultyAdminPage() {
 
         </main>
       </div>
+
+      {/* ── Bulk Import Modal ── */}
+      {bulkImportOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-2xl w-full max-w-md max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
+              <div>
+                <h2 className="text-base font-black text-slate-900">Bulk Import</h2>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">Import multiple students from an Excel sheet</p>
+              </div>
+              <button onClick={() => { setBulkImportOpen(false); setExcelFile(null); }} disabled={importLoading} className="w-8 h-8 flex items-center justify-center rounded text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition disabled:opacity-30 disabled:pointer-events-none">
+                <FiX className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="overflow-y-auto flex-1 p-5 space-y-5">
+
+              {/* Step 1 — template */}
+              <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+                <p className="text-[0.65rem] font-black uppercase tracking-widest text-slate-400">Step 1 — Download template</p>
+                <p className="text-xs text-slate-500 font-medium">Fill in the template with student data. Required columns: <span className="font-black text-slate-700">Name, Parentage, Phone</span>. All others are optional.</p>
+                <button onClick={downloadTemplate} className="w-full flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-black py-2.5 rounded-lg hover:bg-violet-50 hover:border-violet-300 hover:text-violet-600 transition text-sm">
+                  <FiDownload className="w-4 h-4" /> Download Excel Template
+                </button>
+              </div>
+
+              {/* Step 2 — upload */}
+              <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+                <p className="text-[0.65rem] font-black uppercase tracking-widest text-slate-400">Step 2 — Upload your sheet</p>
+                <div className="relative group">
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={e => setExcelFile(e.target.files?.[0] ?? null)}
+                    className="opacity-0 absolute inset-0 w-full h-full z-10 cursor-pointer"
+                    disabled={importLoading}
+                  />
+                  <div className={`p-6 rounded-lg border-2 border-dashed transition text-center space-y-2 ${excelFile ? 'border-violet-400 bg-violet-50' : 'border-slate-200 group-hover:border-violet-400 bg-slate-50/50'}`}>
+                    <FiUpload className={`w-6 h-6 mx-auto transition ${excelFile ? 'text-violet-500' : 'text-slate-300 group-hover:text-violet-400'}`} />
+                    <p className="text-sm font-bold text-slate-600">{excelFile ? excelFile.name : 'Drop Excel file here'}</p>
+                    <p className="text-xs text-slate-400">{excelFile ? 'Click to change file' : 'Click to browse — .xlsx or .xls'}</p>
+                  </div>
+                </div>
+                {excelFile && (
+                  <button onClick={() => setExcelFile(null)} className="text-xs text-rose-500 hover:text-rose-700 font-bold transition">
+                    Remove file
+                  </button>
+                )}
+              </div>
+
+              {/* Info note */}
+              <p className="text-xs text-slate-400 font-medium px-1">
+                The college will be set automatically to <span className="font-black text-slate-600">{user.college}</span>. Photo column is not supported in bulk import — add photos individually after import.
+              </p>
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-4 border-t border-slate-100 flex gap-3 shrink-0">
+              <button
+                onClick={handleExcelUpload}
+                disabled={!excelFile || importLoading}
+                className="flex-1 flex items-center justify-center gap-2 bg-violet-500 text-white font-black py-3 rounded-lg hover:bg-violet-600 transition shadow-sm active:scale-95 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {importLoading
+                  ? <><span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Processing…</>
+                  : <><FiUpload className="w-4 h-4" /> Process All Records</>}
+              </button>
+              <button
+                onClick={() => { setBulkImportOpen(false); setExcelFile(null); }}
+                disabled={importLoading}
+                className="px-5 py-3 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition disabled:opacity-50 disabled:pointer-events-none"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirm Registration Modal ── */}
+      {confirmStudent && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-2xl w-full max-w-md max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white border-b border-slate-100 px-5 py-4 flex items-center justify-between rounded-t-2xl sm:rounded-t-xl">
+              <div>
+                <h2 className="text-base font-black text-slate-900">Confirm Registration</h2>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">Review details before saving</p>
+              </div>
+              <button onClick={() => setConfirmStudent(null)} disabled={submitting} className="w-8 h-8 flex items-center justify-center rounded text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition disabled:opacity-30 disabled:pointer-events-none">
+                <FiX className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-5">
+              {/* Photo + name hero */}
+              <div className="flex items-center gap-4 p-4 bg-violet-50 rounded-lg border border-violet-100">
+                <div className="w-16 h-16 rounded-lg border-2 border-violet-200 bg-white overflow-hidden shrink-0 flex items-center justify-center">
+                  {confirmStudent.photo
+                    ? <img src={confirmStudent.photo} alt="Photo" className="w-full h-full object-cover" />
+                    : <FiCamera className="w-6 h-6 text-slate-300" />}
+                </div>
+                <div className="min-w-0">
+                  <p className="font-black text-slate-900 text-base leading-tight truncate">{confirmStudent.name}</p>
+                  {confirmStudent.parentage && <p className="text-xs text-slate-500 font-medium mt-0.5">{confirmStudent.parentage}</p>}
+                  <p className="text-xs text-violet-600 font-bold mt-1">{confirmStudent.college}</p>
+                </div>
+              </div>
+
+              {/* Detail grid */}
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: 'Phone',       value: confirmStudent.phone },
+                  { label: 'Roll No.',    value: confirmStudent.rollNo },
+                  { label: 'Student ID',  value: confirmStudent.studentId },
+                  { label: 'Class',       value: confirmStudent.studentClass },
+                  { label: 'Course',      value: confirmStudent.course },
+                  { label: 'Year',        value: confirmStudent.year },
+                  { label: 'Email',       value: confirmStudent.email },
+                  { label: 'Bus Stop',    value: confirmStudent.busStop },
+                  { label: 'Blood Group', value: confirmStudent.bloodGroup },
+                ].filter(f => f.value).map(({ label, value }) => (
+                  <div key={label} className="bg-slate-50 rounded-lg px-3 py-2.5 border border-slate-100">
+                    <p className="text-[0.6rem] font-black uppercase tracking-widest text-slate-400">{label}</p>
+                    <p className="text-sm font-bold text-slate-700 mt-0.5 truncate">{value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {!confirmStudent.photo && (
+                <p className="text-xs text-slate-400 font-medium text-center">No photo attached — student will be registered without a photo.</p>
+              )}
+            </div>
+
+            <div className="sticky bottom-0 bg-white border-t border-slate-100 px-5 py-4 flex gap-3">
+              <button
+                onClick={confirmAndSubmit}
+                disabled={submitting}
+                className="flex-1 flex items-center justify-center gap-2 bg-violet-500 text-white font-black py-3 rounded-lg hover:bg-violet-600 transition shadow-sm active:scale-95 text-sm disabled:opacity-60"
+              >
+                {submitting
+                  ? <><span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Registering…</>
+                  : <><FiUserPlus className="w-4 h-4" /> Confirm Registration</>}
+              </button>
+              <button
+                onClick={() => setConfirmStudent(null)}
+                disabled={submitting}
+                className="px-5 py-3 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition disabled:opacity-60"
+              >
+                Edit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Camera modal */}
       {cameraOpen && (

@@ -8,9 +8,11 @@ import ConfirmDialog from './ConfirmDialog';
 
 interface StudentTableProps {
   students: StudentRecord[];
-  onDelete?: (id: string) => void;
+  onDelete?: (id: string) => Promise<void> | void;
   onEdit?: (student: StudentRecord) => void;
   colleges?: string[];
+  defaultFilterCollege?: string;
+  onFilterCollegeChange?: (college: string | null) => void;
 }
 
 function getPageNumbers(current: number, total: number): (number | '...')[] {
@@ -23,13 +25,14 @@ function getPageNumbers(current: number, total: number): (number | '...')[] {
   return pages;
 }
 
-export default function StudentTable({ students, onDelete, onEdit, colleges: collegesProp }: StudentTableProps) {
+export default function StudentTable({ students, onDelete, onEdit, colleges: collegesProp, defaultFilterCollege, onFilterCollegeChange }: StudentTableProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedStudent, setSelectedStudent] = useState<StudentRecord | null>(null);
   const [itemsPerPage, setItemsPerPage] = useState(5);
-  const [filterCollege, setFilterCollege] = useState<string | null>(null);
+  const [filterCollege, setFilterCollege] = useState<string | null>(defaultFilterCollege ?? null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const uniqueColleges = useMemo(() =>
     collegesProp && collegesProp.length > 0
@@ -59,7 +62,12 @@ export default function StudentTable({ students, onDelete, onEdit, colleges: col
     return filteredStudents.slice(start, start + itemsPerPage);
   }, [filteredStudents, safePage, itemsPerPage]);
 
-  const resetFilters = () => { setFilterCollege(null); setSearchTerm(''); setCurrentPage(1); };
+  const updateFilterCollege = (college: string | null) => {
+    setFilterCollege(college);
+    onFilterCollegeChange?.(college);
+    setCurrentPage(1);
+  };
+  const resetFilters = () => { updateFilterCollege(null); setSearchTerm(''); };
   const hasActiveFilters = filterCollege || searchTerm;
   const pageNumbers = getPageNumbers(safePage, totalPages);
 
@@ -90,7 +98,7 @@ export default function StudentTable({ students, onDelete, onEdit, colleges: col
             {uniqueColleges.map(college => (
               <button
                 key={college}
-                onClick={() => { setFilterCollege(prev => prev === college ? null : college); setCurrentPage(1); }}
+                onClick={() => { updateFilterCollege(filterCollege === college ? null : college); }}
                 className={`shrink-0 px-3 py-1.5 rounded text-xs font-bold transition whitespace-nowrap ${filterCollege === college ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
               >
                 {college}
@@ -103,7 +111,7 @@ export default function StudentTable({ students, onDelete, onEdit, colleges: col
             {uniqueColleges.map(college => (
               <button
                 key={college}
-                onClick={() => { setFilterCollege(prev => prev === college ? null : college); setCurrentPage(1); }}
+                onClick={() => { updateFilterCollege(filterCollege === college ? null : college); }}
                 className={`w-full text-left px-3 py-2 rounded text-xs font-bold transition-all leading-snug ${filterCollege === college ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}
               >
                 {college}
@@ -150,7 +158,6 @@ export default function StudentTable({ students, onDelete, onEdit, colleges: col
                 <tr>
                   <Th className="sticky left-0 z-10 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">#</Th>
                   <Th>Photo</Th>
-                  <Th>Photo ID</Th>
                   <Th>Name</Th>
                   <Th>Parentage</Th>
                   <Th>Contact</Th>
@@ -193,12 +200,6 @@ export default function StudentTable({ students, onDelete, onEdit, colleges: col
                       </div>
                     </Td>
 
-                    {/* Photo ID */}
-                    <Td>
-                      {s.photoId
-                        ? <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 text-xs font-black border border-blue-100">{s.photoId}.png</span>
-                        : <span className="text-slate-300 text-xs">—</span>}
-                    </Td>
 
                     {/* Name */}
                     <Td>
@@ -383,7 +384,14 @@ export default function StudentTable({ students, onDelete, onEdit, colleges: col
         open={pendingDeleteId !== null}
         title="Delete Student"
         message="The student record will be soft-deleted. You can restore it later from the Deleted Students section."
-        onConfirm={() => { if (pendingDeleteId) onDelete?.(pendingDeleteId); setPendingDeleteId(null); }}
+        loading={deleting}
+        onConfirm={async () => {
+          if (!pendingDeleteId) return;
+          setDeleting(true);
+          await onDelete?.(pendingDeleteId);
+          setPendingDeleteId(null);
+          setDeleting(false);
+        }}
         onCancel={() => setPendingDeleteId(null)}
       />
     </div>

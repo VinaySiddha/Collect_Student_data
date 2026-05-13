@@ -4,17 +4,52 @@ import { dbExecute } from './db';
 import { User, StudentRecord, UserRole, DbUser } from './types';
 import { RowDataPacket } from 'mysql2';
 
-// MySQL returns BLOB columns as Buffer/Uint8Array — convert to base64 data URL for client components
-function normalizeStudentRow(row: RowDataPacket): StudentRecord {
-  const photo = row.photo;
-  let photoStr: string | undefined;
-  if (photo instanceof Buffer || photo instanceof Uint8Array) {
-    const b64 = Buffer.from(photo).toString('base64');
-    photoStr = b64 ? `data:image/png;base64,${b64}` : undefined;
-  } else if (typeof photo === 'string' && photo.length > 0) {
-    photoStr = photo;
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+/** Trim a string; return null if empty/missing */
+function t(v: string | undefined | null): string | null {
+  if (v == null) return null;
+  const s = v.trim();
+  return s.length > 0 ? s : null;
+}
+
+/**
+ * Map a raw DB row to StudentRecord.
+ * DB uses lowercase column names (studentid, createdby) — we alias them here.
+ * BLOB photo is converted to a base64 data URL; empty Buffer → undefined.
+ */
+function rowToStudent(row: RowDataPacket): StudentRecord {
+  const r = row as Record<string, unknown>;
+
+  let photo: string | undefined;
+  const p = r.photo;
+  if (p instanceof Buffer || p instanceof Uint8Array) {
+    const b64 = Buffer.from(p).toString('base64');
+    if (b64) photo = `data:image/png;base64,${b64}`;
+  } else if (typeof p === 'string' && p.length > 0) {
+    photo = p;
   }
-  return { ...row, photo: photoStr } as StudentRecord;
+
+  return {
+    id:           String(r.id ?? ''),
+    college:      String(r.college ?? ''),
+    name:         String(r.name ?? ''),
+    phone:        String(r.phone ?? ''),
+    createdAt:    r.createdAt ? String(r.createdAt) : new Date().toISOString(),
+    // DB stores as lowercase — handle both for safety
+    studentId:    r.studentid    ? String(r.studentid)    : (r.studentId    ? String(r.studentId)    : undefined),
+    createdBy:    r.createdby    ? String(r.createdby)    : (r.createdBy    ? String(r.createdBy)    : undefined),
+    course:       r.course       ? String(r.course)       : undefined,
+    year:         r.year         ? String(r.year)         : undefined,
+    email:        r.email        ? String(r.email)        : undefined,
+    parentage:    r.parentage    ? String(r.parentage)    : undefined,
+    rollNo:       r.rollNo       ? String(r.rollNo)       : undefined,
+    studentClass: r.studentClass ? String(r.studentClass) : undefined,
+    busStop:      r.busStop      ? String(r.busStop)      : undefined,
+    bloodGroup:   r.bloodGroup   ? String(r.bloodGroup)   : undefined,
+    deletedBy:    r.deleted_by   ? String(r.deleted_by)   : null,
+    photo,
+  };
 }
 
 async function getCollegeId(name: string | null | undefined): Promise<number | null> {
@@ -26,18 +61,21 @@ async function getCollegeId(name: string | null | undefined): Promise<number | n
   return rows.length > 0 ? (rows[0] as RowDataPacket).id as number : null;
 }
 
+// ── Auth ───────────────────────────────────────────────────────────────────────
+
 export async function loginUser(email: string, passwordHash: string) {
+  const emailClean = t(email);
+  if (!emailClean) return { success: false, message: 'Email is required.' };
+  if (!passwordHash) return { success: false, message: 'Password is required.' };
   try {
     const [rows] = await dbExecute<RowDataPacket[]>(
       `SELECT u.*, c.name AS college
        FROM users u
        LEFT JOIN colleges c ON c.id = u.college_id
        WHERE u.email = ? AND u.password = ? AND u.deleted_at IS NULL`,
-      [email.toLowerCase(), passwordHash]
+      [emailClean.toLowerCase(), passwordHash]
     );
-    if (rows.length === 0) {
-      return { success: false, message: 'Invalid email or password.' };
-    }
+    if (rows.length === 0) return { success: false, message: 'Invalid email or password.' };
     return { success: true, message: 'Login successful.', user: rows[0] as User };
   } catch {
     return { success: false, message: 'Database connection failed.' };
@@ -45,28 +83,166 @@ export async function loginUser(email: string, passwordHash: string) {
 }
 
 export async function registerUser(name: string, email: string, passwordHash: string, role: UserRole, college?: string) {
+  const nameClean  = t(name);
+  const emailClean = t(email);
+  if (!nameClean)  return { success: false, message: 'Name is required.' };
+  if (!emailClean) return { success: false, message: 'Email is required.' };
+  if (!passwordHash) return { success: false, message: 'Password is required.' };
+
   try {
     const [existing] = await dbExecute<RowDataPacket[]>(
       'SELECT id FROM users WHERE email = ?',
-      [email.toLowerCase()]
+      [emailClean.toLowerCase()]
     );
-
-    if (existing.length > 0) {
-      return { success: false, message: 'An account with this email already exists.' };
-    }
+    if (existing.length > 0) return { success: false, message: 'An account with this email already exists.' };
 
     const collegeId = await getCollegeId(college);
-
     await dbExecute(
       'INSERT INTO users (name, email, password, role, college_id) VALUES (?, ?, ?, ?, ?)',
-      [name, email.toLowerCase(), passwordHash, role, collegeId]
+      [nameClean, emailClean.toLowerCase(), passwordHash, role, collegeId]
     );
-
-    const newUser: User = { name, email, password: passwordHash, role, college };
-    return { success: true, message: 'Registration complete. Welcome!', user: newUser };
+    return { success: true, message: 'Registration complete. Welcome!', user: { name: nameClean, email: emailClean, password: passwordHash, role, college } as User };
   } catch (error) {
     console.error('Registration error:', error);
     return { success: false, message: 'Failed to create account.' };
+  }
+}
+
+// ── Students ───────────────────────────────────────────────────────────────────
+
+export async function addStudentToDb(student: StudentRecord) {
+  // Server-side validation
+  const name    = t(student.name);
+  const college = t(student.college);
+  const phone   = t(student.phone);
+  if (!name)    return { success: false, message: 'Student name is required.' };
+  if (!college) return { success: false, message: 'College is required.' };
+  if (!phone)   return { success: false, message: 'Phone number is required.' };
+
+  // photo column is NOT NULL in DB — use empty Buffer when no photo is provided
+  const photoBlob = student.photo
+    ? Buffer.from(student.photo.replace(/^data:image\/\w+;base64,/, ''), 'base64')
+    : Buffer.alloc(0);
+
+  try {
+    await dbExecute(
+      `INSERT INTO students
+         (id, college, name, parentage, studentid, rollNo, studentClass,
+          course, year, email, phone, busStop, bloodGroup, photo, createdby)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        student.id,
+        college,
+        name,
+        t(student.parentage),
+        t(student.studentId),
+        t(student.rollNo),
+        t(student.studentClass),
+        t(student.course),
+        t(student.year),
+        t(student.email),
+        phone,
+        t(student.busStop),
+        t(student.bloodGroup),
+        photoBlob,
+        t(student.createdBy) ?? 'Unknown',
+      ]
+    );
+    return { success: true, message: 'Student registered successfully.' };
+  } catch (error: unknown) {
+    console.error('Add student error:', error);
+    const msg = error instanceof Error ? error.message : '';
+    if (msg.includes('Duplicate entry')) return { success: false, message: 'A student with this ID already exists.' };
+    return { success: false, message: 'Failed to save student record.' };
+  }
+}
+
+export async function updateStudentInDb(student: StudentRecord) {
+  const name  = t(student.name);
+  const phone = t(student.phone);
+  if (!name)  return { success: false, message: 'Student name is required.' };
+  if (!phone) return { success: false, message: 'Phone number is required.' };
+
+  // For updates: NULL photo means "keep existing" — but since photo is NOT NULL in DB
+  // we preserve the old value by not updating it when null.
+  try {
+    if (student.photo) {
+      const photoBlob = Buffer.from(student.photo.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+      await dbExecute(
+        `UPDATE students SET
+           college=?, name=?, parentage=?, studentid=?, rollNo=?, studentClass=?,
+           course=?, year=?, email=?, phone=?, busStop=?, bloodGroup=?, photo=?
+         WHERE id=? AND deleted_at IS NULL`,
+        [
+          t(student.college) ?? student.college,
+          name,
+          t(student.parentage),
+          t(student.studentId),
+          t(student.rollNo),
+          t(student.studentClass),
+          t(student.course),
+          t(student.year),
+          t(student.email),
+          phone,
+          t(student.busStop),
+          t(student.bloodGroup),
+          photoBlob,
+          student.id,
+        ]
+      );
+    } else {
+      // No new photo — update all other fields, leave photo column untouched
+      await dbExecute(
+        `UPDATE students SET
+           college=?, name=?, parentage=?, studentid=?, rollNo=?, studentClass=?,
+           course=?, year=?, email=?, phone=?, busStop=?, bloodGroup=?
+         WHERE id=? AND deleted_at IS NULL`,
+        [
+          t(student.college) ?? student.college,
+          name,
+          t(student.parentage),
+          t(student.studentId),
+          t(student.rollNo),
+          t(student.studentClass),
+          t(student.course),
+          t(student.year),
+          t(student.email),
+          phone,
+          t(student.busStop),
+          t(student.bloodGroup),
+          student.id,
+        ]
+      );
+    }
+    return { success: true, message: 'Student updated successfully.' };
+  } catch (error) {
+    console.error('Update student error:', error);
+    return { success: false, message: 'Failed to update student record.' };
+  }
+}
+
+export async function deleteStudentFromDb(id: string, deletedBy?: string) {
+  if (!id) return { success: false, message: 'Student ID is required.' };
+  try {
+    await dbExecute(
+      'UPDATE students SET deleted_at = NOW(), deleted_by = ? WHERE id = ? AND deleted_at IS NULL',
+      [t(deletedBy) ?? 'Unknown', id]
+    );
+    return { success: true };
+  } catch (error) {
+    console.error('Delete student error:', error);
+    return { success: false };
+  }
+}
+
+export async function restoreStudentInDb(id: string): Promise<{ success: boolean }> {
+  if (!id) return { success: false };
+  try {
+    await dbExecute('UPDATE students SET deleted_at = NULL, deleted_by = NULL WHERE id = ?', [id]);
+    return { success: true };
+  } catch (error) {
+    console.error('Restore student error:', error);
+    return { success: false };
   }
 }
 
@@ -75,53 +251,54 @@ export async function getStudents() {
     const [rows] = await dbExecute<RowDataPacket[]>(
       'SELECT * FROM students WHERE deleted_at IS NULL ORDER BY createdAt DESC'
     );
-    return rows.map(normalizeStudentRow);
+    return rows.map(rowToStudent);
   } catch (error) {
     console.error('Fetch students error:', error);
     return [];
   }
 }
 
-export async function addStudentToDb(student: StudentRecord) {
+export async function getStudentsByCollege(college: string): Promise<StudentRecord[]> {
+  if (!college) return [];
   try {
-    await dbExecute(
-      `INSERT INTO students
-         (id, college, name, parentage, studentId, rollNo, studentClass,
-          course, year, email, phone, busStop, bloodGroup, photo, photoId, createdBy)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        student.id, student.college, student.name,
-        student.parentage    ?? null,
-        student.studentId    ?? null,
-        student.rollNo       ?? null,
-        student.studentClass ?? null,
-        student.course       ?? null,
-        student.year         ?? null,
-        student.email        ?? null,
-        student.phone,
-        student.busStop      ?? null,
-        student.bloodGroup   ?? null,
-        student.photo        ?? null,
-        student.photoId      ?? null,
-        student.createdBy    ?? null,
-      ]
+    const [rows] = await dbExecute<RowDataPacket[]>(
+      'SELECT * FROM students WHERE college = ? AND deleted_at IS NULL ORDER BY createdAt DESC',
+      [college.trim()]
     );
-    return { success: true };
+    return rows.map(rowToStudent);
   } catch (error) {
-    console.error('Add student error:', error);
-    return { success: false };
+    console.error('Fetch students by college error:', error);
+    return [];
   }
 }
 
-export async function deleteStudentFromDb(id: string, deletedBy?: string) {
+export async function getDeletedStudents(): Promise<StudentRecord[]> {
   try {
-    await dbExecute('UPDATE students SET deleted_at = NOW(), deleted_by = ? WHERE id = ?', [deletedBy ?? null, id]);
-    return { success: true };
+    const [rows] = await dbExecute<RowDataPacket[]>(
+      'SELECT * FROM students WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC'
+    );
+    return rows.map(rowToStudent);
   } catch (error) {
-    console.error('Delete student error:', error);
-    return { success: false };
+    console.error('Fetch deleted students error:', error);
+    return [];
   }
 }
+
+export async function getDeletedStudentsByCollege(college: string): Promise<StudentRecord[]> {
+  if (!college) return [];
+  try {
+    const [rows] = await dbExecute<RowDataPacket[]>(
+      'SELECT * FROM students WHERE college = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC',
+      [college.trim()]
+    );
+    return rows.map(rowToStudent);
+  } catch (error) {
+    console.error('Fetch deleted students by college error:', error);
+    return [];
+  }
+}
+
+// ── Users ──────────────────────────────────────────────────────────────────────
 
 export async function getUsers(): Promise<DbUser[]> {
   try {
@@ -139,51 +316,8 @@ export async function getUsers(): Promise<DbUser[]> {
   }
 }
 
-export async function deleteUser(id: number, deletedBy?: string) {
-  try {
-    await dbExecute('UPDATE users SET deleted_at = NOW(), deleted_by = ? WHERE id = ?', [deletedBy ?? null, id]);
-    return { success: true };
-  } catch (error) {
-    console.error('Delete user error:', error);
-    return { success: false };
-  }
-}
-
-export async function updateUser(id: number, data: { name: string; email: string; role: string; college?: string | null; passwordHash?: string }) {
-  try {
-    const collegeId = await getCollegeId(data.college);
-    if (data.passwordHash) {
-      await dbExecute(
-        'UPDATE users SET name=?, email=?, role=?, college_id=?, password=? WHERE id=? AND deleted_at IS NULL',
-        [data.name, data.email.toLowerCase(), data.role, collegeId, data.passwordHash, id]
-      );
-    } else {
-      await dbExecute(
-        'UPDATE users SET name=?, email=?, role=?, college_id=? WHERE id=? AND deleted_at IS NULL',
-        [data.name, data.email.toLowerCase(), data.role, collegeId, id]
-      );
-    }
-    return { success: true };
-  } catch (error) {
-    console.error('Update user error:', error);
-    return { success: false };
-  }
-}
-
-export async function updateStudentInDb(student: StudentRecord) {
-  try {
-    await dbExecute(
-      'UPDATE students SET college=?, name=?, studentId=?, course=?, year=?, email=?, phone=? WHERE id=? AND deleted_at IS NULL',
-      [student.college, student.name, student.studentId, student.course, student.year, student.email, student.phone, student.id]
-    );
-    return { success: true };
-  } catch (error) {
-    console.error('Update student error:', error);
-    return { success: false };
-  }
-}
-
 export async function getUsersByCollege(college: string): Promise<DbUser[]> {
+  if (!college) return [];
   try {
     const [rows] = await dbExecute<RowDataPacket[]>(
       `SELECT u.id, u.name, u.email, u.role, c.name AS college, u.created_at
@@ -191,179 +325,11 @@ export async function getUsersByCollege(college: string): Promise<DbUser[]> {
        LEFT JOIN colleges c ON c.id = u.college_id
        WHERE c.name = ? AND u.role = 'faculty' AND u.deleted_at IS NULL
        ORDER BY u.created_at DESC`,
-      [college]
+      [college.trim()]
     );
     return rows as DbUser[];
   } catch (error) {
     console.error('Get users by college error:', error);
-    return [];
-  }
-}
-
-export async function getStudentsByCollege(college: string): Promise<StudentRecord[]> {
-  try {
-    const [rows] = await dbExecute<RowDataPacket[]>(
-      'SELECT * FROM students WHERE college = ? AND deleted_at IS NULL ORDER BY createdAt DESC',
-      [college]
-    );
-    return rows.map(normalizeStudentRow);
-  } catch (error) {
-    console.error('Fetch students by college error:', error);
-    return [];
-  }
-}
-
-export async function migrateRoleEnum() {
-  try {
-    await dbExecute(
-      "ALTER TABLE users MODIFY COLUMN role ENUM('faculty', 'admin', 'faculty_admin') NOT NULL DEFAULT 'faculty'"
-    );
-  } catch {
-    // Already migrated or no structural change needed
-  }
-}
-
-
-export async function ensureCollegesTable() {
-  try {
-    await dbExecute(`
-      CREATE TABLE IF NOT EXISTS colleges (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(255) NOT NULL UNIQUE,
-        deleted_at TIMESTAMP NULL DEFAULT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    const [count] = await dbExecute<RowDataPacket[]>(
-      'SELECT COUNT(*) AS cnt FROM colleges WHERE deleted_at IS NULL'
-    );
-    if ((count[0] as RowDataPacket).cnt === 0) {
-      const defaultColleges = ['Engineering College', 'Arts & Science College', 'Business School', 'Design Institute'];
-      for (const name of defaultColleges) {
-        await dbExecute('INSERT IGNORE INTO colleges (name) VALUES (?)', [name]);
-      }
-    }
-  } catch {
-    // Table may already exist or DB not reachable
-  }
-}
-
-export async function addCollegeToDb(name: string) {
-  const trimmed = name.trim();
-  try {
-    // If a soft-deleted college with this name exists, restore it
-    const [deleted] = await dbExecute<RowDataPacket[]>(
-      'SELECT id FROM colleges WHERE name = ? AND deleted_at IS NOT NULL',
-      [trimmed]
-    );
-    if (deleted.length > 0) {
-      await dbExecute('UPDATE colleges SET deleted_at = NULL WHERE name = ?', [trimmed]);
-      return { success: true, message: 'College restored successfully.' };
-    }
-
-    // Check for an active college with the same name
-    const [active] = await dbExecute<RowDataPacket[]>(
-      'SELECT id FROM colleges WHERE name = ? AND deleted_at IS NULL',
-      [trimmed]
-    );
-    if (active.length > 0) {
-      return { success: false, message: 'This college already exists.' };
-    }
-
-    await dbExecute('INSERT INTO colleges (name) VALUES (?)', [trimmed]);
-    return { success: true, message: 'College added successfully.' };
-  } catch {
-    return { success: false, message: 'Failed to add college.' };
-  }
-}
-
-export async function deleteCollegeFromDb(name: string, deletedBy?: string) {
-  try {
-    await dbExecute('UPDATE colleges SET deleted_at = NOW(), deleted_by = ? WHERE name = ?', [deletedBy ?? null, name]);
-    return { success: true, message: 'College removed successfully.' };
-  } catch {
-    return { success: false, message: 'Failed to remove college.' };
-  }
-}
-
-export async function changeMyPassword(email: string, currentPasswordHash: string, newPasswordHash: string) {
-  try {
-    const [rows] = await dbExecute<RowDataPacket[]>(
-      'SELECT id FROM users WHERE email = ? AND password = ? AND deleted_at IS NULL',
-      [email.toLowerCase(), currentPasswordHash]
-    );
-    if (rows.length === 0) {
-      return { success: false, message: 'Current password is incorrect.' };
-    }
-    await dbExecute(
-      'UPDATE users SET password = ? WHERE email = ? AND deleted_at IS NULL',
-      [newPasswordHash, email.toLowerCase()]
-    );
-    return { success: true, message: 'Password updated successfully.' };
-  } catch {
-    return { success: false, message: 'Failed to update password.' };
-  }
-}
-
-export async function getCollegesFromDb() {
-  try {
-    const [rows] = await dbExecute<RowDataPacket[]>(
-      'SELECT name FROM colleges WHERE deleted_at IS NULL ORDER BY name'
-    );
-    return rows.map(r => r.name as string);
-  } catch {
-    return ['Engineering College', 'Arts & Science College', 'Business School', 'Design Institute'];
-  }
-}
-
-export async function getDeletedStudents(): Promise<StudentRecord[]> {
-  try {
-    const [rows] = await dbExecute<RowDataPacket[]>(
-      'SELECT *, deleted_by AS deletedBy FROM students WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC'
-    );
-    return rows.map(normalizeStudentRow);
-  } catch (error) {
-    console.error('Fetch deleted students error:', error);
-    return [];
-  }
-}
-
-export async function getDeletedStudentsByCollege(college: string): Promise<StudentRecord[]> {
-  try {
-    const [rows] = await dbExecute<RowDataPacket[]>(
-      'SELECT *, deleted_by AS deletedBy FROM students WHERE college = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC',
-      [college]
-    );
-    return rows.map(normalizeStudentRow);
-  } catch (error) {
-    console.error('Fetch deleted students by college error:', error);
-    return [];
-  }
-}
-
-export async function restoreStudentInDb(id: string): Promise<{ success: boolean }> {
-  try {
-    await dbExecute('UPDATE students SET deleted_at = NULL WHERE id = ?', [id]);
-    return { success: true };
-  } catch (error) {
-    console.error('Restore student error:', error);
-    return { success: false };
-  }
-}
-
-export async function getDeletedUsersByCollege(college: string): Promise<DbUser[]> {
-  try {
-    const [rows] = await dbExecute<RowDataPacket[]>(
-      `SELECT u.id, u.name, u.email, u.role, c.name AS college, u.created_at, u.deleted_by AS deletedBy
-       FROM users u
-       LEFT JOIN colleges c ON c.id = u.college_id
-       WHERE c.name = ? AND u.role = 'faculty' AND u.deleted_at IS NOT NULL
-       ORDER BY u.deleted_at DESC`,
-      [college]
-    );
-    return rows as DbUser[];
-  } catch (error) {
-    console.error('Get deleted users by college error:', error);
     return [];
   }
 }
@@ -384,13 +350,143 @@ export async function getDeletedUsers(): Promise<DbUser[]> {
   }
 }
 
-export async function restoreUserInDb(id: number): Promise<{ success: boolean }> {
+export async function getDeletedUsersByCollege(college: string): Promise<DbUser[]> {
+  if (!college) return [];
   try {
-    await dbExecute('UPDATE users SET deleted_at = NULL WHERE id = ?', [id]);
+    const [rows] = await dbExecute<RowDataPacket[]>(
+      `SELECT u.id, u.name, u.email, u.role, c.name AS college, u.created_at, u.deleted_by AS deletedBy
+       FROM users u
+       LEFT JOIN colleges c ON c.id = u.college_id
+       WHERE c.name = ? AND u.role = 'faculty' AND u.deleted_at IS NOT NULL
+       ORDER BY u.deleted_at DESC`,
+      [college.trim()]
+    );
+    return rows as DbUser[];
+  } catch (error) {
+    console.error('Get deleted users by college error:', error);
+    return [];
+  }
+}
+
+export async function deleteUser(id: number, deletedBy?: string) {
+  if (!id) return { success: false };
+  try {
+    await dbExecute(
+      'UPDATE users SET deleted_at = NOW(), deleted_by = ? WHERE id = ? AND deleted_at IS NULL',
+      [t(deletedBy) ?? 'Unknown', id]
+    );
+    return { success: true };
+  } catch (error) {
+    console.error('Delete user error:', error);
+    return { success: false };
+  }
+}
+
+export async function restoreUserInDb(id: number): Promise<{ success: boolean }> {
+  if (!id) return { success: false };
+  try {
+    await dbExecute('UPDATE users SET deleted_at = NULL, deleted_by = NULL WHERE id = ?', [id]);
     return { success: true };
   } catch (error) {
     console.error('Restore user error:', error);
     return { success: false };
+  }
+}
+
+export async function updateUser(id: number, data: { name: string; email: string; role: string; college?: string | null; passwordHash?: string }) {
+  const name  = t(data.name);
+  const email = t(data.email);
+  if (!name)  return { success: false, message: 'Name is required.' };
+  if (!email) return { success: false, message: 'Email is required.' };
+
+  try {
+    const collegeId = await getCollegeId(data.college);
+    if (data.passwordHash) {
+      await dbExecute(
+        'UPDATE users SET name=?, email=?, role=?, college_id=?, password=? WHERE id=? AND deleted_at IS NULL',
+        [name, email.toLowerCase(), data.role, collegeId, data.passwordHash, id]
+      );
+    } else {
+      await dbExecute(
+        'UPDATE users SET name=?, email=?, role=?, college_id=? WHERE id=? AND deleted_at IS NULL',
+        [name, email.toLowerCase(), data.role, collegeId, id]
+      );
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('Update user error:', error);
+    return { success: false };
+  }
+}
+
+export async function changeMyPassword(email: string, currentPasswordHash: string, newPasswordHash: string) {
+  const emailClean = t(email);
+  if (!emailClean) return { success: false, message: 'Email is required.' };
+  try {
+    const [rows] = await dbExecute<RowDataPacket[]>(
+      'SELECT id FROM users WHERE email = ? AND password = ? AND deleted_at IS NULL',
+      [emailClean.toLowerCase(), currentPasswordHash]
+    );
+    if (rows.length === 0) return { success: false, message: 'Current password is incorrect.' };
+    await dbExecute(
+      'UPDATE users SET password = ? WHERE email = ? AND deleted_at IS NULL',
+      [newPasswordHash, emailClean.toLowerCase()]
+    );
+    return { success: true, message: 'Password updated successfully.' };
+  } catch {
+    return { success: false, message: 'Failed to update password.' };
+  }
+}
+
+// ── Colleges ───────────────────────────────────────────────────────────────────
+
+export async function getCollegesFromDb() {
+  try {
+    const [rows] = await dbExecute<RowDataPacket[]>(
+      'SELECT name FROM colleges WHERE deleted_at IS NULL ORDER BY name'
+    );
+    return rows.map(r => r.name as string);
+  } catch {
+    return [];
+  }
+}
+
+export async function addCollegeToDb(name: string) {
+  const trimmed = t(name);
+  if (!trimmed) return { success: false, message: 'College name is required.' };
+  try {
+    const [deleted] = await dbExecute<RowDataPacket[]>(
+      'SELECT id FROM colleges WHERE name = ? AND deleted_at IS NOT NULL',
+      [trimmed]
+    );
+    if (deleted.length > 0) {
+      await dbExecute('UPDATE colleges SET deleted_at = NULL WHERE name = ?', [trimmed]);
+      return { success: true, message: 'College restored successfully.' };
+    }
+    const [active] = await dbExecute<RowDataPacket[]>(
+      'SELECT id FROM colleges WHERE name = ? AND deleted_at IS NULL',
+      [trimmed]
+    );
+    if (active.length > 0) return { success: false, message: 'This college already exists.' };
+
+    await dbExecute('INSERT INTO colleges (name) VALUES (?)', [trimmed]);
+    return { success: true, message: 'College added successfully.' };
+  } catch {
+    return { success: false, message: 'Failed to add college.' };
+  }
+}
+
+export async function deleteCollegeFromDb(name: string, deletedBy?: string) {
+  const trimmed = t(name);
+  if (!trimmed) return { success: false, message: 'College name is required.' };
+  try {
+    await dbExecute(
+      'UPDATE colleges SET deleted_at = NOW(), deleted_by = ? WHERE name = ? AND deleted_at IS NULL',
+      [t(deletedBy) ?? 'Unknown', trimmed]
+    );
+    return { success: true, message: 'College removed successfully.' };
+  } catch {
+    return { success: false, message: 'Failed to remove college.' };
   }
 }
 
@@ -406,10 +502,68 @@ export async function getDeletedColleges(): Promise<{ name: string; deletedBy: s
 }
 
 export async function restoreCollegeFromDb(name: string): Promise<{ success: boolean; message: string }> {
+  const trimmed = t(name);
+  if (!trimmed) return { success: false, message: 'College name is required.' };
   try {
-    await dbExecute('UPDATE colleges SET deleted_at = NULL WHERE name = ?', [name]);
+    await dbExecute('UPDATE colleges SET deleted_at = NULL, deleted_by = NULL WHERE name = ?', [trimmed]);
     return { success: true, message: 'College restored successfully.' };
   } catch {
     return { success: false, message: 'Failed to restore college.' };
+  }
+}
+
+// ── Schema helpers ─────────────────────────────────────────────────────────────
+
+export async function ensureCollegesTable() {
+  try {
+    await dbExecute(`
+      CREATE TABLE IF NOT EXISTS colleges (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) NOT NULL UNIQUE,
+        deleted_at TIMESTAMP NULL DEFAULT NULL,
+        deleted_by VARCHAR(255) NULL DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    const [count] = await dbExecute<RowDataPacket[]>(
+      'SELECT COUNT(*) AS cnt FROM colleges WHERE deleted_at IS NULL'
+    );
+    if ((count[0] as RowDataPacket).cnt === 0) {
+      for (const name of ['Engineering College', 'Arts & Science College', 'Business School', 'Design Institute']) {
+        await dbExecute('INSERT IGNORE INTO colleges (name) VALUES (?)', [name]);
+      }
+    }
+  } catch {
+    // Table may already exist
+  }
+}
+
+export async function migrateRoleEnum() {
+  try {
+    await dbExecute(
+      "ALTER TABLE users MODIFY COLUMN role ENUM('faculty', 'admin', 'faculty_admin') NOT NULL DEFAULT 'faculty'"
+    );
+  } catch {
+    // Already up to date
+  }
+}
+
+export async function migrateBase64PhotosToBlob(): Promise<{ success: boolean; migrated: number; message: string }> {
+  try {
+    const [rows] = await dbExecute<RowDataPacket[]>(
+      "SELECT id, photo FROM students WHERE photo IS NOT NULL AND photo != ''"
+    );
+    const base64Rows = (rows as RowDataPacket[]).filter(r => typeof r.photo === 'string' && r.photo.length > 0);
+    let migrated = 0;
+    for (const row of base64Rows) {
+      const raw  = (row.photo as string).replace(/^data:image\/\w+;base64,/, '');
+      const blob = Buffer.from(raw, 'base64');
+      await dbExecute('UPDATE students SET photo = ? WHERE id = ?', [blob, row.id]);
+      migrated++;
+    }
+    return { success: true, migrated, message: `Migrated ${migrated} photo(s) from base64 to BLOB.` };
+  } catch (error) {
+    console.error('Migration error:', error);
+    return { success: false, migrated: 0, message: 'Migration failed.' };
   }
 }

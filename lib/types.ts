@@ -22,19 +22,18 @@ export interface StudentRecord {
   id: string;
   college: string;
   name: string;
-  parentage?: string;
+  phone: string;
+  createdAt: string;
   studentId?: string;
-  rollNo?: string;
-  studentClass?: string;
   course?: string;
   year?: string;
   email?: string;
-  phone: string;
+  parentage?: string;
+  rollNo?: string;
+  studentClass?: string;
   busStop?: string;
   bloodGroup?: string;
   photo?: string;
-  photoId?: number;
   createdBy?: string;
-  createdAt: string;
   deletedBy?: string | null;
 }

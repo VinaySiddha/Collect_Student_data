@@ -10,11 +10,10 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import JSZip from 'jszip';
-import { saveAs } from 'file-saver';
 import {
   FiUserPlus, FiUpload, FiDownload, FiUsers, FiLogOut,
   FiLayout, FiMenu, FiX, FiRotateCcw, FiChevronDown,
-  FiCamera, FiArchive,
+  FiCamera, FiArchive, FiSave, FiRefreshCw,
 } from 'react-icons/fi';
 import { GoSidebarExpand, GoSidebarCollapse } from 'react-icons/go';
 
@@ -28,7 +27,7 @@ const EMPTY_FORM = {
 
 export default function FacultyPage() {
   const router = useRouter();
-  const { user, initialized, logout, students, addStudent, importStudents, deleteStudent, colleges, refreshStudents } = useAuth();
+  const { user, initialized, logout, students, addStudent, importStudents, deleteStudent, updateStudent, colleges, refreshStudents } = useAuth();
 
   const [collapsed, setCollapsed]       = useState(false);
   const [mobileOpen, setMobileOpen]     = useState(false);
@@ -40,6 +39,18 @@ export default function FacultyPage() {
   const [submissionCount, setSubmissionCount] = useState(0);
   const [deletedStudents, setDeletedStudents] = useState<StudentRecord[]>([]);
   const [showDeletedStudents, setShowDeletedStudents] = useState(false);
+
+  const [refreshing, setRefreshing] = useState(false);
+  const [confirmStudent, setConfirmStudent] = useState<StudentRecord | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
+  const [excelFile, setExcelFile] = useState<File | null>(null);
+  const [editStudent, setEditStudent] = useState<StudentRecord | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', studentId: '', course: '', year: '', email: '', phone: '', college: '' });
+  const [editPhoto, setEditPhoto] = useState<string | null>(null);
+  const [editMsg, setEditMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
 
   // Camera
   const videoRef  = useRef<HTMLVideoElement>(null);
@@ -53,6 +64,13 @@ export default function FacultyPage() {
     const college = user.college || colleges[0] || '';
     setForm(prev => ({ ...prev, college }));
   }, [user, initialized, router, colleges]);
+
+  // Seed registration counter from current student count
+  const facultyCollege = user?.college ?? '';
+  useEffect(() => {
+    const count = students.filter(s => s.college === facultyCollege).length;
+    setSubmissionCount(count);
+  }, [students, facultyCollege]);
 
   useEffect(() => {
     if (cameraOpen && videoRef.current && streamRef.current) {
@@ -124,13 +142,13 @@ export default function FacultyPage() {
   };
 
   // ── Form submit ───────────────────────────────────────────────────────────────
-  const createStudent = async (e: React.FormEvent<HTMLFormElement>) => {
+  const createStudent = (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!form.name.trim())      { setNotice({ message: 'Student Name is required.', type: 'error' }); return; }
     if (!form.parentage.trim()) { setNotice({ message: 'Parentage is required.', type: 'error' }); return; }
     if (!form.phone.trim())     { setNotice({ message: 'Contact Number is required.', type: 'error' }); return; }
 
-    const record: StudentRecord = {
+    setConfirmStudent({
       id:           `${Date.now()}`,
       college:      form.college,
       name:         form.name,
@@ -147,16 +165,26 @@ export default function FacultyPage() {
       photo:        photoPreview      || undefined,
       createdBy:    user?.name || user?.email || 'Unknown',
       createdAt:    new Date().toISOString(),
-    };
+    });
+  };
 
-    await addStudent(record);
-    const newCount = submissionCount + 1;
-    setSubmissionCount(newCount);
-    setNotice({ message: `Student No. ${newCount} registered successfully.`, type: 'success' });
-    setForm(prev => ({ ...EMPTY_FORM, college: prev.college }));
-    setPhotoPreview(null);
-    setUploadFile(null);
-    setTimeout(() => setNotice(null), 4000);
+  const confirmAndSubmit = async () => {
+    if (!confirmStudent) return;
+    setSubmitting(true);
+    try {
+      await addStudent(confirmStudent);
+      // submissionCount is kept in sync via the useEffect above — no manual increment needed
+      setConfirmStudent(null);
+      setForm(prev => ({ ...EMPTY_FORM, college: prev.college }));
+      setPhotoPreview(null);
+      setUploadFile(null);
+      setNotice({ message: 'Student registered successfully.', type: 'success' });
+      setTimeout(() => setNotice(null), 4000);
+    } catch {
+      setConfirmStudent(null);
+      setNotice({ message: 'Failed to save student record. Please try again.', type: 'error' });
+    }
+    setSubmitting(false);
   };
 
   const handleRestoreStudent = async (id: string) => {
@@ -167,58 +195,105 @@ export default function FacultyPage() {
     }
   };
 
+  const openEditModal = (student: StudentRecord) => {
+    setEditStudent(student);
+    setEditForm({ name: student.name, studentId: student.studentId ?? '', course: student.course ?? '', year: student.year ?? '', email: student.email ?? '', phone: student.phone, college: student.college });
+    setEditPhoto(student.photo ?? null);
+    setEditMsg(null);
+  };
+
+  const handleEditPhotoFile = (file: File | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX = 400;
+        let { width, height } = img;
+        if (width > height) { if (width > MAX) { height = Math.round(height * MAX / width); width = MAX; } }
+        else                { if (height > MAX) { width = Math.round(width * MAX / height); height = MAX; } }
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d')?.drawImage(img, 0, 0, width, height);
+        setEditPhoto(canvas.toDataURL('image/png'));
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editStudent) return;
+    if (!editForm.name) {
+      setEditMsg({ text: 'Student name is required.', type: 'error' });
+      return;
+    }
+    setEditSaving(true);
+    const updated: StudentRecord = { ...editStudent, ...editForm, photo: editPhoto ?? undefined };
+    await updateStudent(updated);
+    setEditMsg({ text: 'Student updated successfully.', type: 'success' });
+    setEditSaving(false);
+    setTimeout(() => { setEditStudent(null); setEditMsg(null); }, 1200);
+  };
+
   // ── Excel import ──────────────────────────────────────────────────────────────
   const handleExcelUpload = async () => {
-    if (!uploadFile) { setNotice({ message: 'Select an Excel file first.', type: 'error' }); return; }
+    if (!excelFile) { setNotice({ message: 'Select an Excel file first.', type: 'error' }); return; }
+    setImportLoading(true);
     try {
-      const data  = await uploadFile.arrayBuffer();
-      const wb    = XLSX.read(data, { type: 'array' });
-      const ws    = wb.Sheets[wb.SheetNames[0]];
-      const rows  = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' });
+      const data = await excelFile.arrayBuffer();
+      const wb   = XLSX.read(data, { type: 'array' });
+      const ws   = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' });
       const [headers, ...values] = rows;
       if (!headers || !Array.isArray(headers)) {
-        setNotice({ message: 'Excel file appears empty or invalid.', type: 'error' }); return;
+        setNotice({ message: 'Excel file appears empty or invalid.', type: 'error' });
+        setImportLoading(false); return;
       }
       const norm = headers.map(h => String(h ?? '').trim().toLowerCase());
-      const records = values.map(row => {
+      const dataRows = values.filter(r => Array.isArray(r) && r.some(v => String(v ?? '').trim()));
+      if (dataRows.length === 0) {
+        setNotice({ message: 'No data rows found in the file.', type: 'error' });
+        setImportLoading(false); return;
+      }
+      const records = dataRows.map(row => {
         const e = Array.isArray(row)
-          ? row.reduce<Record<string, string>>((acc, v, i) => { acc[norm[i] ?? ''] = String(v ?? ''); return acc; }, {})
+          ? row.reduce<Record<string, string>>((acc, v, i) => { acc[norm[i] ?? ''] = String(v ?? '').trim(); return acc; }, {})
           : {};
         return {
           id:           `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          college:      user?.college || e.college || '',
-          name:         e.name || 'Unnamed Student',
-          parentage:    e.parentage              || undefined,
-          studentId:    e['student id'] || e.studentid || undefined,
-          rollNo:       e['roll no.']   || e.rollno    || undefined,
-          studentClass: e.class                  || undefined,
-          course:       e.course                 || undefined,
-          year:         e.year                   || undefined,
-          email:        e.email                  || undefined,
-          phone:        e.phone || 'N/A',
-          busStop:      e['bus stop']            || undefined,
-          bloodGroup:   e['blood group']         || undefined,
+          college:      user?.college || '',
+          name:         e.name        || 'Unnamed Student',
+          parentage:    e.parentage   || undefined,
+          studentId:    e['student id']  || e.studentid   || undefined,
+          rollNo:       e['roll no.']    || e['roll no']   || e.rollno   || undefined,
+          studentClass: e.class          || undefined,
+          course:       e.course         || undefined,
+          year:         e.year           || undefined,
+          email:        e.email          || undefined,
+          phone:        e.phone          || '',
+          busStop:      e['bus stop']    || undefined,
+          bloodGroup:   e['blood group'] || undefined,
           createdBy:    user?.name || user?.email || 'Imported',
           createdAt:    new Date().toISOString(),
         } as StudentRecord;
       });
       await importStudents(records);
+      setExcelFile(null);
+      setBulkImportOpen(false);
       setNotice({ message: `${records.length} records imported successfully.`, type: 'success' });
-      setUploadFile(null);
-      setTimeout(() => setNotice(null), 3000);
+      setTimeout(() => setNotice(null), 4000);
     } catch {
-      setNotice({ message: 'Failed to parse Excel file.', type: 'error' });
+      setNotice({ message: 'Failed to parse Excel file. Make sure it is a valid .xlsx file.', type: 'error' });
     }
+    setImportLoading(false);
   };
 
   // ── Exports ───────────────────────────────────────────────────────────────────
-  const collegeSlug = (college: string) =>
-    college.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-
   const exportExcel = () => {
     const ws = XLSX.utils.json_to_sheet(facultyStudents.map((s, i) => ({
       '#':           i + 1,
-      'Photo ID':    s.photoId ? `${s.photoId}.png` : '',
+      'Photo':       s.photo ? `${i + 1}.png` : '',
       Name:          s.name,
       Parentage:     s.parentage    || '',
       'Student ID':  s.studentId    || '',
@@ -240,25 +315,20 @@ export default function FacultyPage() {
   };
 
   const downloadTemplate = () => {
-    const ws = XLSX.utils.json_to_sheet([{
-      Name: 'John Doe', Parentage: 'S/O Robert Doe',
-      'Student ID': 'STU-001', 'Roll No.': '42', Class: '10th',
-      Course: 'Computer Science', Year: '2024',
-      Email: 'john@college.edu', Phone: '+91 98765 43210',
-      'Bus Stop': 'Main Bus Stand', 'Blood Group': 'O+',
-    }]);
+    const rows = [
+      { Name: 'Rahul Sharma', Parentage: 'S/O Ramesh Sharma', 'Student ID': 'STU-001', 'Roll No.': '101', Class: 'B.Tech 2nd Year', Course: 'Computer Science', Year: '2024–25', Email: 'rahul@college.edu', Phone: '+91 98765 43210', 'Bus Stop': 'Main Bus Stand', 'Blood Group': 'O+' },
+      { Name: 'Priya Verma',  Parentage: 'D/O Suresh Verma',  'Student ID': 'STU-002', 'Roll No.': '102', Class: 'B.Tech 2nd Year', Course: 'Electronics',       Year: '2024–25', Email: 'priya@college.edu', Phone: '+91 91234 56789', 'Bus Stop': 'City Square',    'Blood Group': 'A+' },
+    ];
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const cols = Object.keys(rows[0]);
+    ws['!cols'] = cols.map(k => ({ wch: Math.max(k.length, ...rows.map(r => String(r[k as keyof typeof r] ?? '').length)) + 2 }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Students');
     XLSX.writeFile(wb, 'student-import-template.xlsx');
   };
 
   const exportZip = async () => {
-    const sorted = [...facultyStudents].sort((a, b) => {
-      if (a.photoId && b.photoId) return a.photoId - b.photoId;
-      if (a.photoId) return -1;
-      if (b.photoId) return 1;
-      return a.name.localeCompare(b.name);
-    });
+    const sorted = [...facultyStudents].sort((a, b) => a.name.localeCompare(b.name));
 
     if (sorted.length === 0) {
       setNotice({ message: 'No student records to export.', type: 'error' }); return;
@@ -270,7 +340,7 @@ export default function FacultyPage() {
 
     const ws = XLSX.utils.json_to_sheet(sorted.map((s, i) => ({
       '#':           i + 1,
-      'Photo ID':    s.photoId ? `${s.photoId}.png` : '',
+      'Photo':       s.photo ? `${i + 1}.png` : '',
       Name:          s.name,
       Parentage:     s.parentage    || '',
       'Student ID':  s.studentId    || '',
@@ -290,24 +360,21 @@ export default function FacultyPage() {
     XLSX.utils.book_append_sheet(wb, ws, 'Students');
     zip.file('students.xlsx', XLSX.write(wb, { bookType: 'xlsx', type: 'array' }));
 
-    // Add photos — use base64 from state if present, otherwise fetch from disk
     let photoCount = 0;
-    for (const s of sorted) {
-      if (!s.photoId) continue;
-      if (s.photo) {
-        const base64 = s.photo.replace(/^data:image\/\w+;base64,/, '');
-        photos.file(`${s.photoId}.png`, base64, { base64: true });
-        photoCount++;
-      } else {
-        try {
-          const resp = await fetch(`/student-photos/${collegeSlug(s.college)}/${s.photoId}.png`);
-          if (resp.ok) { photos.file(`${s.photoId}.png`, await resp.blob()); photoCount++; }
-        } catch { /* skip */ }
-      }
-    }
+    sorted.forEach((s, i) => {
+      if (!s.photo) return;
+      const base64 = s.photo.replace(/^data:image\/\w+;base64,/, '');
+      photos.file(`${i + 1}.png`, base64, { base64: true });
+      photoCount++;
+    });
 
     const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
-    saveAs(blob, `students-export-${new Date().toISOString().slice(0, 10)}.zip`);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `students-export-${new Date().toISOString().slice(0, 10)}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
     setNotice({ message: `Exported ${sorted.length} students · ${photoCount} photo${photoCount !== 1 ? 's' : ''} in photos/ folder.`, type: 'success' });
     setTimeout(() => setNotice(null), 5000);
   };
@@ -456,6 +523,15 @@ export default function FacultyPage() {
                   <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">{facultyStudents.length} students in registry</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={async () => { setRefreshing(true); await refreshStudents(); setRefreshing(false); }}
+                    disabled={refreshing}
+                    title="Refresh data"
+                    className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-white border border-slate-200 rounded font-black text-sm text-slate-600 hover:bg-slate-50 transition shadow-sm active:scale-95 disabled:opacity-60"
+                  >
+                    <FiRefreshCw className={`w-4 h-4 shrink-0 ${refreshing ? 'animate-spin' : ''}`} />
+                    <span className="hidden sm:inline">Refresh</span>
+                  </button>
                   <button onClick={exportZip} className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-slate-900 text-white rounded font-black text-sm hover:bg-blue-700 transition shadow-sm active:scale-95">
                     <FiArchive className="w-4 h-4 shrink-0" />
                     <span className="hidden sm:inline">Export ZIP</span>
@@ -473,7 +549,7 @@ export default function FacultyPage() {
               </div>
 
               <div className="bg-white rounded border border-slate-200 shadow-sm p-3 sm:p-4 lg:p-6">
-                <StudentTable students={facultyStudents} onDelete={deleteStudent} />
+                <StudentTable students={[...facultyStudents].sort((a, b) => a.name.localeCompare(b.name))} onDelete={deleteStudent} onEdit={openEditModal} colleges={colleges} />
               </div>
 
               {/* Deleted Students */}
@@ -538,12 +614,18 @@ export default function FacultyPage() {
           {/* ── Register ── */}
           {activeView === 'register' && (
             <div className="space-y-6">
-              <div>
-                <h1 className="text-xl sm:text-2xl font-black text-slate-900">Register Students</h1>
-                <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">Add new students manually or import via Excel</p>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h1 className="text-xl sm:text-2xl font-black text-slate-900">Register Students</h1>
+                  <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">Add new students manually or import via Excel</p>
+                </div>
+                <button
+                  onClick={() => setBulkImportOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 text-white font-black text-sm rounded hover:bg-blue-700 transition shadow-sm active:scale-95 shrink-0"
+                >
+                  <FiUpload className="w-4 h-4" /> Bulk Import
+                </button>
               </div>
-
-              <div className="grid gap-6 md:grid-cols-[1.1fr_0.9fr]">
 
                 {/* ── Manual form ── */}
                 <div className="bg-white rounded border border-slate-200 shadow-sm p-4 lg:p-6">
@@ -556,12 +638,10 @@ export default function FacultyPage() {
                       <h2 className="text-base font-black text-slate-900">Manual Registration</h2>
                       <p className="text-xs text-slate-500 mt-0.5">Fields marked * are required</p>
                     </div>
-                    {submissionCount > 0 && (
-                      <div className="shrink-0 text-right bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
-                        <p className="text-[0.55rem] font-black uppercase tracking-widest text-blue-500">Student No.</p>
-                        <p className="text-xl font-black text-blue-700 leading-none">{submissionCount}</p>
-                      </div>
-                    )}
+                    <div className="shrink-0 text-right bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                      <p className="text-[0.55rem] font-black uppercase tracking-widest text-blue-500">Total Students</p>
+                      <p className="text-xl font-black text-blue-700 leading-none">{submissionCount}</p>
+                    </div>
                   </div>
 
                   <form onSubmit={createStudent} className="space-y-4">
@@ -746,71 +826,222 @@ export default function FacultyPage() {
 
                     <button
                       type="submit"
-                      className="w-full bg-blue-600 text-white font-black py-3.5 rounded hover:bg-blue-700 transition shadow-sm active:scale-95 text-sm"
+                      className="w-full bg-blue-600 text-white font-black py-3.5 rounded hover:bg-blue-700 transition shadow-sm active:scale-95 text-sm flex items-center justify-center gap-2"
                     >
-                      Register Student Profile
+                      <FiUserPlus className="w-4 h-4" /> Review &amp; Register
                     </button>
                   </form>
                 </div>
 
-                {/* ── Bulk + Export ── */}
-                <div className="space-y-6">
-                  <div className="bg-white rounded border border-slate-200 shadow-sm p-4 lg:p-6">
-                    <div className="flex items-center gap-3 mb-5">
-                      <div className="bg-blue-600 p-2.5 rounded text-white shrink-0">
-                        <FiUpload className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h2 className="text-base font-black text-slate-900">Bulk Import</h2>
-                        <p className="text-xs text-slate-500 mt-0.5">Batch process Excel data sheets</p>
-                      </div>
-                    </div>
-                    <div className="space-y-3">
-                      <button onClick={downloadTemplate} className="w-full flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-black py-2.5 rounded hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 transition text-sm">
-                        <FiDownload className="w-4 h-4" /> Download Excel Template
-                      </button>
-                      <div className="relative group">
-                        <input type="file" accept=".xlsx,.xls" onChange={e => setUploadFile(e.target.files?.[0] ?? null)} className="opacity-0 absolute inset-0 w-full h-full z-10 cursor-pointer" />
-                        <div className="p-8 rounded border-2 border-dashed border-slate-200 group-hover:border-blue-500 transition bg-slate-50/50 text-center space-y-2">
-                          <FiUpload className="w-6 h-6 mx-auto text-slate-300 group-hover:text-blue-500 transition" />
-                          <p className="text-sm font-bold text-slate-500">{uploadFile ? uploadFile.name : 'Drop Excel File Here'}</p>
-                          <p className="text-xs text-slate-400">Click to browse</p>
-                        </div>
-                      </div>
-                      <button onClick={handleExcelUpload} className="w-full bg-slate-900 text-white font-black py-3 rounded hover:bg-blue-700 transition shadow-sm text-sm active:scale-95">
-                        Process All Records
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-900 rounded border border-slate-800 p-4 lg:p-6 text-white">
-                    <div className="flex items-center gap-3 mb-5">
-                      <div className="bg-white/10 p-2.5 rounded border border-white/10 text-blue-400 shrink-0">
-                        <FiDownload className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h2 className="text-base font-black text-white">Export</h2>
-                        <p className="text-xs text-white/50 mt-0.5">Download student data</p>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <button onClick={exportZip} className="bg-white text-slate-900 font-black py-3 rounded hover:bg-slate-100 transition text-sm flex items-center justify-center gap-1.5 active:scale-95">
-                        <FiArchive className="w-4 h-4" /> ZIP
-                      </button>
-                      <button onClick={exportExcel} className="bg-slate-800 text-white font-black py-3 rounded hover:bg-slate-700 transition border border-white/10 text-sm flex items-center justify-center gap-1.5 active:scale-95">
-                        <FiDownload className="w-4 h-4" /> Excel
-                      </button>
-                      <button onClick={exportPDF} className="bg-slate-800 text-white font-black py-3 rounded hover:bg-slate-700 transition border border-white/10 text-sm flex items-center justify-center gap-1.5 active:scale-95">
-                        <FiUsers className="w-4 h-4" /> PDF
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
         </main>
       </div>
+
+      {/* ── Bulk Import Modal ── */}
+      {bulkImportOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4" onClick={importLoading ? undefined : () => { setBulkImportOpen(false); setExcelFile(null); }}>
+          <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <div>
+                <h2 className="text-base font-black text-slate-900">Bulk Import</h2>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">Upload an Excel file to import multiple students at once</p>
+              </div>
+              <button onClick={() => { setBulkImportOpen(false); setExcelFile(null); }} disabled={importLoading} className="w-8 h-8 flex items-center justify-center rounded text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition disabled:opacity-30 disabled:pointer-events-none">
+                <FiX className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <button onClick={downloadTemplate} className="w-full flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-black py-2.5 rounded hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 transition text-sm">
+                <FiDownload className="w-4 h-4" /> Download Excel Template
+              </button>
+              <div className="relative group">
+                <input type="file" accept=".xlsx,.xls" onChange={e => setExcelFile(e.target.files?.[0] ?? null)} className="opacity-0 absolute inset-0 w-full h-full z-10 cursor-pointer" />
+                <div className="p-8 rounded border-2 border-dashed border-slate-200 group-hover:border-blue-500 transition bg-slate-50/50 text-center space-y-2">
+                  <FiUpload className="w-6 h-6 mx-auto text-slate-300 group-hover:text-blue-500 transition" />
+                  <p className="text-sm font-bold text-slate-500">{excelFile ? excelFile.name : 'Drop Excel File Here'}</p>
+                  <p className="text-xs text-slate-400">Click to browse · .xlsx or .xls</p>
+                </div>
+              </div>
+              <button
+                onClick={handleExcelUpload}
+                disabled={importLoading || !excelFile}
+                className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white font-black py-3 rounded hover:bg-blue-700 transition shadow-sm text-sm active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {importLoading
+                  ? <><span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin shrink-0" /> Importing…</>
+                  : <><FiUpload className="w-4 h-4" /> Process All Records</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirm Registration Modal ── */}
+      {confirmStudent && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-2xl w-full max-w-md max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white border-b border-slate-100 px-5 py-4 flex items-center justify-between rounded-t-2xl sm:rounded-t-xl">
+              <div>
+                <h2 className="text-base font-black text-slate-900">Confirm Registration</h2>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">Review details before saving</p>
+              </div>
+              <button onClick={() => setConfirmStudent(null)} disabled={submitting} className="w-8 h-8 flex items-center justify-center rounded text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition disabled:opacity-30 disabled:pointer-events-none">
+                <FiX className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-5">
+              {/* Photo + name hero */}
+              <div className="flex items-center gap-4 p-4 bg-blue-50 rounded-lg border border-blue-100">
+                <div className="w-16 h-16 rounded-lg border-2 border-blue-200 bg-white overflow-hidden shrink-0 flex items-center justify-center">
+                  {confirmStudent.photo
+                    ? <img src={confirmStudent.photo} alt="Photo" className="w-full h-full object-cover" />
+                    : <FiCamera className="w-6 h-6 text-slate-300" />}
+                </div>
+                <div className="min-w-0">
+                  <p className="font-black text-slate-900 text-base leading-tight truncate">{confirmStudent.name}</p>
+                  {confirmStudent.parentage && <p className="text-xs text-slate-500 font-medium mt-0.5">{confirmStudent.parentage}</p>}
+                  <p className="text-xs text-blue-600 font-bold mt-1">{confirmStudent.college}</p>
+                </div>
+              </div>
+
+              {/* Detail grid */}
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: 'Phone',        value: confirmStudent.phone },
+                  { label: 'Roll No.',     value: confirmStudent.rollNo },
+                  { label: 'Student ID',   value: confirmStudent.studentId },
+                  { label: 'Class',        value: confirmStudent.studentClass },
+                  { label: 'Course',       value: confirmStudent.course },
+                  { label: 'Year',         value: confirmStudent.year },
+                  { label: 'Email',        value: confirmStudent.email },
+                  { label: 'Bus Stop',     value: confirmStudent.busStop },
+                  { label: 'Blood Group',  value: confirmStudent.bloodGroup },
+                ].filter(f => f.value).map(({ label, value }) => (
+                  <div key={label} className="bg-slate-50 rounded-lg px-3 py-2.5 border border-slate-100">
+                    <p className="text-[0.6rem] font-black uppercase tracking-widest text-slate-400">{label}</p>
+                    <p className="text-sm font-bold text-slate-700 mt-0.5 truncate">{value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {!confirmStudent.photo && (
+                <p className="text-xs text-slate-400 font-medium text-center">No photo attached — student will be registered without a photo.</p>
+              )}
+            </div>
+
+            <div className="sticky bottom-0 bg-white border-t border-slate-100 px-5 py-4 flex gap-3">
+              <button
+                onClick={confirmAndSubmit}
+                disabled={submitting}
+                className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white font-black py-3 rounded-lg hover:bg-blue-700 transition shadow-sm active:scale-95 text-sm disabled:opacity-60"
+              >
+                {submitting
+                  ? <><span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Registering…</>
+                  : <><FiUserPlus className="w-4 h-4" /> Confirm Registration</>}
+              </button>
+              <button
+                onClick={() => setConfirmStudent(null)}
+                disabled={submitting}
+                className="px-5 py-3 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition disabled:opacity-60"
+              >
+                Edit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Student Modal ── */}
+      {editStudent && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4" onClick={() => setEditStudent(null)}>
+          <div className="bg-white rounded-t-2xl sm:rounded-lg shadow-2xl w-full max-w-lg p-5 sm:p-6 space-y-5 max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-black text-slate-900">Edit Student</h2>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">Update student record details</p>
+              </div>
+              <button onClick={() => setEditStudent(null)} className="w-8 h-8 flex items-center justify-center rounded text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition">
+                <FiX className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              {[
+                { label: 'Full Name', key: 'name', type: 'text', placeholder: 'Student name' },
+                { label: 'Student ID', key: 'studentId', type: 'text', placeholder: 'e.g. STU001' },
+                { label: 'Course', key: 'course', type: 'text', placeholder: 'e.g. B.Tech CSE' },
+                { label: 'Year', key: 'year', type: 'text', placeholder: 'e.g. 3' },
+                { label: 'Email', key: 'email', type: 'email', placeholder: 'student@email.com' },
+                { label: 'Phone', key: 'phone', type: 'text', placeholder: '10-digit number' },
+              ].map(({ label, key, type, placeholder }) => (
+                <label key={key} className="block">
+                  <span className="mb-1 block text-xs font-black uppercase tracking-widest text-slate-400">{label}</span>
+                  <input
+                    type={type}
+                    value={editForm[key as keyof typeof editForm]}
+                    onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))}
+                    placeholder={placeholder}
+                    className="input-field text-sm"
+                  />
+                </label>
+              ))}
+
+              <div className="sm:col-span-2">
+                <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">
+                  Photo <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span>
+                </span>
+                <div className="flex items-center gap-3">
+                  <div className="w-16 h-16 rounded border border-slate-200 bg-slate-50 shrink-0 overflow-hidden flex items-center justify-center">
+                    {editPhoto
+                      ? <img src={editPhoto} alt="Photo" className="w-full h-full object-cover" />
+                      : <FiCamera className="w-5 h-5 text-slate-300" />}
+                  </div>
+                  <div className="flex flex-col gap-2 flex-1">
+                    <div className="relative">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={e => handleEditPhotoFile(e.target.files?.[0] ?? null)}
+                        className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
+                      />
+                      <button type="button" className="w-full flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-bold py-2 rounded hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600 transition text-sm">
+                        <FiUpload className="w-3.5 h-3.5" /> Upload New Photo
+                      </button>
+                    </div>
+                    {editPhoto && (
+                      <button type="button" onClick={() => setEditPhoto(null)} className="text-xs font-bold text-rose-500 hover:text-rose-700 transition text-left">
+                        Remove photo
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {editMsg && (
+              <p className={`text-sm font-bold p-3 rounded ${editMsg.type === 'error' ? 'bg-rose-50 text-rose-600 border border-rose-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
+                {editMsg.text}
+              </p>
+            )}
+
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={handleSaveEdit}
+                disabled={editSaving}
+                className="flex items-center gap-2 bg-blue-600 text-white font-black px-5 py-2.5 rounded hover:bg-blue-700 transition shadow-sm active:scale-95 text-sm disabled:opacity-60"
+              >
+                <FiSave className="w-3.5 h-3.5" />
+                {editSaving ? 'Saving…' : 'Save Changes'}
+              </button>
+              <button onClick={() => setEditStudent(null)} className="px-5 py-2.5 rounded border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Camera modal ── */}
       {cameraOpen && (

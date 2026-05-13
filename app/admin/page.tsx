@@ -4,13 +4,10 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 import JSZip from 'jszip';
-import { saveAs } from 'file-saver';
 import StudentTable from '@/components/StudentTable';
 import ConfirmDialog from '@/components/ConfirmDialog';
-import { FiUsers, FiDownload, FiPlus, FiTrash2, FiMapPin, FiLogOut, FiLayout, FiUser, FiMail, FiLock, FiBook, FiChevronDown, FiChevronLeft, FiChevronRight, FiSearch, FiMenu, FiX, FiEdit2, FiSave, FiRotateCcw, FiArchive } from 'react-icons/fi';
+import { FiUsers, FiDownload, FiPlus, FiTrash2, FiMapPin, FiLogOut, FiLayout, FiUser, FiMail, FiLock, FiBook, FiChevronDown, FiChevronLeft, FiChevronRight, FiSearch, FiMenu, FiX, FiEdit2, FiSave, FiRotateCcw, FiArchive, FiUpload, FiCamera, FiRefreshCw } from 'react-icons/fi';
 import { GoSidebarExpand, GoSidebarCollapse } from 'react-icons/go';
 import {
   registerUser, getUsers, deleteUser, updateUser, changeMyPassword,
@@ -39,8 +36,12 @@ export default function AdminPage() {
   const [collegeRowsPerPage, setCollegeRowsPerPage] = useState(10);
   const [editStudent, setEditStudent] = useState<StudentRecord | null>(null);
   const [editForm, setEditForm] = useState({ name: '', studentId: '', course: '', year: '', email: '', phone: '', college: '' });
+  const [editPhoto, setEditPhoto] = useState<string | null>(null);
   const [editMsg, setEditMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [editSaving, setEditSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [activeFilterCollege, setActiveFilterCollege] = useState<string | null>(null);
+  const [tableKey, setTableKey] = useState(0);
   const [editingUser, setEditingUser] = useState<DbUser | null>(null);
   const [userEditForm, setUserEditForm] = useState({ name: '', email: '', role: 'faculty' as 'faculty' | 'faculty_admin', college: '', newPassword: '' });
   const [userEditMsg, setUserEditMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -85,6 +86,12 @@ export default function AdminPage() {
   }, [activeView, user]);
 
   useEffect(() => {
+    if (colleges.length > 0 && !activeFilterCollege) {
+      setActiveFilterCollege(colleges[0]);
+    }
+  }, [colleges, activeFilterCollege]);
+
+  useEffect(() => {
     if (activeView === 'dashboard') {
       getDeletedStudents().then(setDeletedStudents);
     }
@@ -98,8 +105,29 @@ export default function AdminPage() {
 
   const openEditModal = (student: StudentRecord) => {
     setEditStudent(student);
-    setEditForm({ name: student.name, studentId: student.studentId, course: student.course, year: student.year, email: student.email, phone: student.phone, college: student.college });
+    setEditForm({ name: student.name, studentId: student.studentId ?? '', course: student.course ?? '', year: student.year ?? '', email: student.email ?? '', phone: student.phone, college: student.college });
+    setEditPhoto(student.photo ?? null);
     setEditMsg(null);
+  };
+
+  const handleEditPhotoFile = (file: File | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX = 400;
+        let { width, height } = img;
+        if (width > height) { if (width > MAX) { height = Math.round(height * MAX / width); width = MAX; } }
+        else                { if (height > MAX) { width = Math.round(width * MAX / height); height = MAX; } }
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d')?.drawImage(img, 0, 0, width, height);
+        setEditPhoto(canvas.toDataURL('image/png'));
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSaveEdit = async () => {
@@ -109,7 +137,7 @@ export default function AdminPage() {
       return;
     }
     setEditSaving(true);
-    const updated: StudentRecord = { ...editStudent, ...editForm };
+    const updated: StudentRecord = { ...editStudent, ...editForm, photo: editPhoto ?? undefined };
     await updateStudent(updated);
     setEditMsg({ text: 'Student updated successfully.', type: 'success' });
     setEditSaving(false);
@@ -262,24 +290,20 @@ export default function AdminPage() {
     college.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
   const exportZip = async () => {
-    if (students.length === 0) {
+    const exportList = activeFilterCollege ? students.filter(s => s.college === activeFilterCollege) : students;
+    if (exportList.length === 0) {
       setMessage({ text: 'No student records to export.', type: 'error' }); return;
     }
     setMessage({ text: 'Preparing export…', type: 'success' });
 
-    const sorted = [...students].sort((a, b) => {
-      if (a.photoId && b.photoId) return a.photoId - b.photoId;
-      if (a.photoId) return -1;
-      if (b.photoId) return 1;
-      return a.name.localeCompare(b.name);
-    });
+    const sorted = [...exportList].sort((a, b) => a.name.localeCompare(b.name));
 
     const zip    = new JSZip();
     const photos = zip.folder('photos')!;
 
     const ws = XLSX.utils.json_to_sheet(sorted.map((s, i) => ({
       '#':           i + 1,
-      'Photo ID':    s.photoId ? `${s.photoId}.png` : '',
+      'Photo':       s.photo ? `${i + 1}.png` : '',
       Name:          s.name,
       Parentage:     s.parentage    || '',
       'Student ID':  s.studentId    || '',
@@ -300,60 +324,48 @@ export default function AdminPage() {
     zip.file('students.xlsx', XLSX.write(wb, { bookType: 'xlsx', type: 'array' }));
 
     let photoCount = 0;
-    for (const s of sorted) {
-      if (!s.photoId) continue;
-      if (s.photo) {
-        const base64 = s.photo.replace(/^data:image\/\w+;base64,/, '');
-        photos.file(`${s.photoId}.png`, base64, { base64: true });
-        photoCount++;
-      } else {
-        try {
-          const resp = await fetch(`/student-photos/${collegeSlug(s.college)}/${s.photoId}.png`);
-          if (resp.ok) { photos.file(`${s.photoId}.png`, await resp.blob()); photoCount++; }
-        } catch { /* skip */ }
-      }
-    }
+    sorted.forEach((s, i) => {
+      if (!s.photo) return;
+      const base64 = s.photo.replace(/^data:image\/\w+;base64,/, '');
+      photos.file(`${i + 1}.png`, base64, { base64: true });
+      photoCount++;
+    });
 
     const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
-    saveAs(blob, `admin-export-${new Date().toISOString().slice(0, 10)}.zip`);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${activeFilterCollege || 'export'}-${new Date().toISOString().slice(0, 10)}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
     setMessage({ text: `Exported ${sorted.length} students · ${photoCount} photo${photoCount !== 1 ? 's' : ''} in photos/ folder.`, type: 'success' });
     setTimeout(() => setMessage(null), 5000);
   };
 
   const exportExcel = () => {
-    const worksheet = XLSX.utils.json_to_sheet(
-      students.map((item) => ({
-        Name: item.name,
-        'Student ID': item.studentId,
-        College: item.college,
-        Course: item.course,
-        Year: item.year,
-        Email: item.email,
-        Phone: item.phone,
-        'Added By': item.createdBy || 'Unknown',
-        'Created At': new Date(item.createdAt).toLocaleDateString(),
-      }))
-    );
+    const exportList = (activeFilterCollege ? students.filter(s => s.college === activeFilterCollege) : students)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const worksheet = XLSX.utils.json_to_sheet(exportList.map((s, i) => ({
+      '#':           i + 1,
+      'Photo':       s.photo ? `${i + 1}.png` : '',
+      Name:          s.name,
+      Parentage:     s.parentage    || '',
+      'Student ID':  s.studentId    || '',
+      'Roll No.':    s.rollNo       || '',
+      Class:         s.studentClass || '',
+      College:       s.college,
+      Course:        s.course       || '',
+      Year:          s.year         || '',
+      Email:         s.email        || '',
+      Phone:         s.phone,
+      'Bus Stop':    s.busStop      || '',
+      'Blood Group': s.bloodGroup   || '',
+      'Added By':    s.createdBy    || 'Unknown',
+      'Created At':  new Date(s.createdAt).toLocaleDateString(),
+    })));
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'College Report');
-    XLSX.writeFile(workbook, `Admin_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
-  };
-
-  const exportPDF = async () => {
-    const element = document.getElementById('admin-registry-section');
-    if (!element) return;
-    setMessage({ text: 'Generating PDF…', type: 'success' });
-    const canvas = await html2canvas(element, { scale: 2, backgroundColor: '#fcfdfe' });
-    const imgData = canvas.toDataURL('image/png');
-    const pdf = new jsPDF('portrait', 'px', 'a4');
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const imageProps = pdf.getImageProperties(imgData);
-    const ratio = Math.min(pageWidth / imageProps.width, pageHeight / imageProps.height);
-    pdf.addImage(imgData, 'PNG', 0, 0, imageProps.width * ratio, imageProps.height * ratio);
-    pdf.save(`Admin_Registry_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
-    setMessage({ text: 'PDF exported successfully!', type: 'success' });
-    setTimeout(() => setMessage(null), 3000);
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Students');
+    XLSX.writeFile(workbook, `${activeFilterCollege || 'Admin'}_Students_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   if (!initialized || !user || user.role !== 'admin') return null;
@@ -546,7 +558,16 @@ export default function AdminPage() {
                   <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">{students.length} students in registry</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <button onClick={exportZip} className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-slate-900 text-white rounded font-black text-sm hover:bg-green-700 transition shadow-sm active:scale-95">
+                  <button
+                    onClick={async () => { setRefreshing(true); await refreshStudents(); setRefreshing(false); }}
+                    disabled={refreshing}
+                    title="Refresh data"
+                    className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-white border border-slate-200 rounded font-black text-sm text-slate-600 hover:bg-slate-50 transition shadow-sm active:scale-95 disabled:opacity-60"
+                  >
+                    <FiRefreshCw className={`w-4 h-4 shrink-0 ${refreshing ? 'animate-spin' : ''}`} />
+                    <span className="hidden sm:inline">Refresh</span>
+                  </button>
+                  <button onClick={exportZip} disabled={!activeFilterCollege || students.filter(s => s.college === activeFilterCollege).length === 0} className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-slate-900 text-white rounded font-black text-sm hover:bg-green-700 transition shadow-sm active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed">
                     <FiArchive className="w-4 h-4 shrink-0" />
                     <span className="hidden sm:inline">Export ZIP</span>
                     <span className="sm:hidden">ZIP</span>
@@ -555,14 +576,17 @@ export default function AdminPage() {
                     <FiDownload className="w-4 h-4 shrink-0" />
                     <span className="hidden sm:inline">Excel</span>
                   </button>
-                  <button onClick={exportPDF} className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-white border border-slate-200 rounded font-black text-sm text-slate-600 hover:bg-slate-50 transition shadow-sm active:scale-95">
-                    <FiUsers className="w-4 h-4 shrink-0" />
-                    <span className="hidden sm:inline">PDF</span>
-                  </button>
                 </div>
               </div>
               <div className="bg-white rounded border border-slate-200 shadow-sm p-3 sm:p-4 lg:p-6">
-                <StudentTable students={students} onDelete={deleteStudent} onEdit={openEditModal} colleges={colleges} />
+                <StudentTable key={tableKey} students={[...students].sort((a, b) => a.name.localeCompare(b.name))} onDelete={deleteStudent} onEdit={openEditModal} colleges={colleges} defaultFilterCollege={colleges[0]} onFilterCollegeChange={c => {
+                  if (c === null) {
+                    setActiveFilterCollege(colleges[0] ?? null);
+                    setTableKey(k => k + 1);
+                  } else {
+                    setActiveFilterCollege(c);
+                  }
+                }} />
               </div>
 
               {/* Deleted Students */}
@@ -574,16 +598,16 @@ export default function AdminPage() {
                   <span className="flex items-center gap-2 text-sm font-black text-slate-500">
                     <FiRotateCcw className="w-4 h-4" />
                     Deleted Students
-                    {deletedStudents.length > 0 && (
-                      <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-600 text-[0.65rem] font-black">{deletedStudents.length}</span>
-                    )}
+                    {(() => { const c = (activeFilterCollege ? deletedStudents.filter(s => s.college === activeFilterCollege) : deletedStudents).length; return c > 0 && <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-600 text-[0.65rem] font-black">{c}</span>; })()}
                   </span>
                   <FiChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showDeletedStudents ? 'rotate-180' : ''}`} />
                 </button>
                 {showDeletedStudents && (
                   <div className="border-t border-slate-100">
-                    {deletedStudents.length === 0 ? (
-                      <p className="px-6 py-8 text-center text-sm text-slate-400 font-bold">No deleted students.</p>
+                    {(() => {
+                      const filtered = activeFilterCollege ? deletedStudents.filter(s => s.college === activeFilterCollege) : deletedStudents;
+                      return filtered.length === 0 ? (
+                      <p className="px-6 py-8 text-center text-sm text-slate-400 font-bold">No deleted students{activeFilterCollege ? ` for ${activeFilterCollege}` : ''}.</p>
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="min-w-full text-sm border-separate border-spacing-0">
@@ -597,7 +621,7 @@ export default function AdminPage() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
-                            {deletedStudents.map(s => (
+                            {filtered.map(s => (
                               <tr key={s.id} className="bg-rose-50/20">
                                 <td className="px-4 lg:px-6 py-3">
                                   <p className="font-bold text-slate-400 text-sm">{s.name}</p>
@@ -625,7 +649,8 @@ export default function AdminPage() {
                           </tbody>
                         </table>
                       </div>
-                    )}
+                    );
+                    })()}
                   </div>
                 )}
               </div>
@@ -1297,6 +1322,37 @@ export default function AdminPage() {
                   <FiChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 pointer-events-none" />
                 </div>
               </label>
+
+              <div className="sm:col-span-2">
+                <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">
+                  Photo <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span>
+                </span>
+                <div className="flex items-center gap-3">
+                  <div className="w-16 h-16 rounded border border-slate-200 bg-slate-50 shrink-0 overflow-hidden flex items-center justify-center">
+                    {editPhoto
+                      ? <img src={editPhoto} alt="Photo" className="w-full h-full object-cover" />
+                      : <FiCamera className="w-5 h-5 text-slate-300" />}
+                  </div>
+                  <div className="flex flex-col gap-2 flex-1">
+                    <div className="relative">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={e => handleEditPhotoFile(e.target.files?.[0] ?? null)}
+                        className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
+                      />
+                      <button type="button" className="w-full flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-bold py-2 rounded hover:bg-slate-100 transition text-sm">
+                        <FiUpload className="w-3.5 h-3.5" /> Upload New Photo
+                      </button>
+                    </div>
+                    {editPhoto && (
+                      <button type="button" onClick={() => setEditPhoto(null)} className="text-xs font-bold text-rose-500 hover:text-rose-700 transition text-left">
+                        Remove photo
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
 
             {editMsg && (
