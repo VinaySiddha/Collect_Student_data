@@ -4,6 +4,19 @@ import { dbExecute } from './db';
 import { User, StudentRecord, UserRole, DbUser } from './types';
 import { RowDataPacket } from 'mysql2';
 
+// MySQL returns BLOB columns as Buffer/Uint8Array — convert to base64 data URL for client components
+function normalizeStudentRow(row: RowDataPacket): StudentRecord {
+  const photo = row.photo;
+  let photoStr: string | undefined;
+  if (photo instanceof Buffer || photo instanceof Uint8Array) {
+    const b64 = Buffer.from(photo).toString('base64');
+    photoStr = b64 ? `data:image/png;base64,${b64}` : undefined;
+  } else if (typeof photo === 'string' && photo.length > 0) {
+    photoStr = photo;
+  }
+  return { ...row, photo: photoStr } as StudentRecord;
+}
+
 async function getCollegeId(name: string | null | undefined): Promise<number | null> {
   if (!name) return null;
   const [rows] = await dbExecute<RowDataPacket[]>(
@@ -62,7 +75,7 @@ export async function getStudents() {
     const [rows] = await dbExecute<RowDataPacket[]>(
       'SELECT * FROM students WHERE deleted_at IS NULL ORDER BY createdAt DESC'
     );
-    return rows as StudentRecord[];
+    return rows.map(normalizeStudentRow);
   } catch (error) {
     console.error('Fetch students error:', error);
     return [];
@@ -72,8 +85,26 @@ export async function getStudents() {
 export async function addStudentToDb(student: StudentRecord) {
   try {
     await dbExecute(
-      'INSERT INTO students (id, college, name, studentId, course, year, email, phone, photo, createdBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [student.id, student.college, student.name, student.studentId, student.course, student.year, student.email, student.phone, student.photo ?? null, student.createdBy ?? null]
+      `INSERT INTO students
+         (id, college, name, parentage, studentId, rollNo, studentClass,
+          course, year, email, phone, busStop, bloodGroup, photo, photoId, createdBy)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        student.id, student.college, student.name,
+        student.parentage    ?? null,
+        student.studentId    ?? null,
+        student.rollNo       ?? null,
+        student.studentClass ?? null,
+        student.course       ?? null,
+        student.year         ?? null,
+        student.email        ?? null,
+        student.phone,
+        student.busStop      ?? null,
+        student.bloodGroup   ?? null,
+        student.photo        ?? null,
+        student.photoId      ?? null,
+        student.createdBy    ?? null,
+      ]
     );
     return { success: true };
   } catch (error) {
@@ -175,7 +206,7 @@ export async function getStudentsByCollege(college: string): Promise<StudentReco
       'SELECT * FROM students WHERE college = ? AND deleted_at IS NULL ORDER BY createdAt DESC',
       [college]
     );
-    return rows as StudentRecord[];
+    return rows.map(normalizeStudentRow);
   } catch (error) {
     console.error('Fetch students by college error:', error);
     return [];
@@ -290,7 +321,7 @@ export async function getDeletedStudents(): Promise<StudentRecord[]> {
     const [rows] = await dbExecute<RowDataPacket[]>(
       'SELECT *, deleted_by AS deletedBy FROM students WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC'
     );
-    return rows as StudentRecord[];
+    return rows.map(normalizeStudentRow);
   } catch (error) {
     console.error('Fetch deleted students error:', error);
     return [];
@@ -303,7 +334,7 @@ export async function getDeletedStudentsByCollege(college: string): Promise<Stud
       'SELECT *, deleted_by AS deletedBy FROM students WHERE college = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC',
       [college]
     );
-    return rows as StudentRecord[];
+    return rows.map(normalizeStudentRow);
   } catch (error) {
     console.error('Fetch deleted students by college error:', error);
     return [];

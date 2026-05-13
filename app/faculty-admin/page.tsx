@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import StudentTable from '@/components/StudentTable';
@@ -19,11 +19,13 @@ import {
 } from '@/lib/actions';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 import { DbUser, StudentRecord } from '@/lib/types';
 import {
   FiLayout, FiUsers, FiLogOut, FiPlus, FiTrash2, FiUser, FiMail,
   FiLock, FiMenu, FiX, FiDownload, FiChevronDown, FiMapPin, FiShield,
-  FiUserPlus, FiUpload, FiRotateCcw,
+  FiUserPlus, FiUpload, FiRotateCcw, FiCamera, FiArchive,
 } from 'react-icons/fi';
 import { hashPasswordClient } from '@/lib/clientHash';
 import { GoSidebarExpand, GoSidebarCollapse } from 'react-icons/go';
@@ -52,10 +54,17 @@ export default function FacultyAdminPage() {
   const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // Register view state
-  const [form, setForm] = useState({ name: '', studentId: '', course: '', year: '', email: '', phone: '' });
+  const EMPTY_FORM = { name: '', parentage: '', studentId: '', rollNo: '', studentClass: '', course: '', year: '', email: '', phone: '', busStop: '', bloodGroup: '' };
+  const [form, setForm] = useState(EMPTY_FORM);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [notice, setNotice] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [submissionCount, setSubmissionCount] = useState(0);
+
+  // Camera
+  const videoRef  = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
 
   // Deleted students
   const [deletedStudents, setDeletedStudents] = useState<StudentRecord[]>([]);
@@ -179,21 +188,88 @@ export default function FacultyAdminPage() {
     });
   };
 
+  const collegeSlug = (college: string) =>
+    college.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+
+  const sortedStudents = [...students].sort((a, b) => {
+    if (a.photoId && b.photoId) return a.photoId - b.photoId;
+    if (a.photoId) return -1;
+    if (b.photoId) return 1;
+    return a.name.localeCompare(b.name);
+  });
+
   const exportExcel = () => {
-    const ws = XLSX.utils.json_to_sheet(students.map(s => ({
-      Name: s.name,
-      'Student ID': s.studentId,
-      College: s.college,
-      Course: s.course,
-      Year: s.year,
-      Email: s.email,
-      Phone: s.phone,
-      'Added By': s.createdBy || 'Unknown',
-      'Created At': new Date(s.createdAt).toLocaleDateString(),
+    const ws = XLSX.utils.json_to_sheet(sortedStudents.map((s, i) => ({
+      '#':           i + 1,
+      'Photo ID':    s.photoId ? `${s.photoId}.png` : '',
+      Name:          s.name,
+      Parentage:     s.parentage    || '',
+      'Student ID':  s.studentId    || '',
+      'Roll No.':    s.rollNo       || '',
+      Class:         s.studentClass || '',
+      College:       s.college,
+      Course:        s.course       || '',
+      Year:          s.year         || '',
+      Email:         s.email        || '',
+      Phone:         s.phone,
+      'Bus Stop':    s.busStop      || '',
+      'Blood Group': s.bloodGroup   || '',
+      'Added By':    s.createdBy    || 'Unknown',
+      'Created At':  new Date(s.createdAt).toLocaleDateString(),
     })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Students');
     XLSX.writeFile(wb, `${user?.college ?? 'College'}_Students_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const exportZip = async () => {
+    if (sortedStudents.length === 0) {
+      showToast('No student records to export.', 'error'); return;
+    }
+    showToast('Preparing export…', 'success');
+
+    const zip    = new JSZip();
+    const photos = zip.folder('photos')!;
+
+    const ws = XLSX.utils.json_to_sheet(sortedStudents.map((s, i) => ({
+      '#':           i + 1,
+      'Photo ID':    s.photoId ? `${s.photoId}.png` : '',
+      Name:          s.name,
+      Parentage:     s.parentage    || '',
+      'Student ID':  s.studentId    || '',
+      'Roll No.':    s.rollNo       || '',
+      Class:         s.studentClass || '',
+      College:       s.college,
+      Course:        s.course       || '',
+      Year:          s.year         || '',
+      Email:         s.email        || '',
+      Phone:         s.phone,
+      'Bus Stop':    s.busStop      || '',
+      'Blood Group': s.bloodGroup   || '',
+      'Added By':    s.createdBy    || 'Unknown',
+      'Created At':  new Date(s.createdAt).toLocaleDateString(),
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Students');
+    zip.file('students.xlsx', XLSX.write(wb, { bookType: 'xlsx', type: 'array' }));
+
+    let photoCount = 0;
+    for (const s of sortedStudents) {
+      if (!s.photoId) continue;
+      if (s.photo) {
+        photos.file(`${s.photoId}.png`, s.photo.replace(/^data:image\/\w+;base64,/, ''), { base64: true });
+        photoCount++;
+      } else {
+        try {
+          const resp = await fetch(`/student-photos/${collegeSlug(s.college)}/${s.photoId}.png`);
+          if (resp.ok) { photos.file(`${s.photoId}.png`, await resp.blob()); photoCount++; }
+        } catch { /* skip */ }
+      }
+    }
+
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+    saveAs(blob, `${user?.college ?? 'College'}_export_${new Date().toISOString().slice(0, 10)}.zip`);
+    showToast(`Exported ${sortedStudents.length} students · ${photoCount} photo${photoCount !== 1 ? 's' : ''} in photos/ folder.`, 'success');
   };
 
   const showToast = (text: string, type: 'success' | 'error') => {
@@ -201,45 +277,102 @@ export default function FacultyAdminPage() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  const handlePhoto = (file: File | null) => {
+  // Camera sync
+  useEffect(() => {
+    if (cameraOpen && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(() => {});
+    }
+  }, [cameraOpen]);
+
+  const processImage = (src: string) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const MAX = 400;
+      let { width, height } = img;
+      if (width > height) { if (width > MAX) { height = Math.round(height * MAX / width); width = MAX; } }
+      else                { if (height > MAX) { width = Math.round(width * MAX / height); height = MAX; } }
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d')?.drawImage(img, 0, 0, width, height);
+      setPhotoPreview(canvas.toDataURL('image/png'));
+    };
+    img.src = src;
+  };
+
+  const handlePhotoFile = (file: File | null) => {
     if (!file) { setPhotoPreview(null); return; }
     const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let { width, height } = img;
-        const MAX = 400;
-        if (width > height) { if (width > MAX) { height *= MAX / width; width = MAX; } }
-        else { if (height > MAX) { width *= MAX / height; height = MAX; } }
-        canvas.width = width; canvas.height = height;
-        canvas.getContext('2d')?.drawImage(img, 0, 0, width, height);
-        setPhotoPreview(canvas.toDataURL('image/jpeg', 0.7));
-      };
-      img.src = e.target?.result as string;
-    };
+    reader.onload = e => processImage(e.target?.result as string);
     reader.readAsDataURL(file);
+  };
+
+  const startCamera = async () => {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } } });
+      streamRef.current = s;
+      setCameraOpen(true);
+    } catch {
+      setNotice({ message: 'Camera access denied or unavailable.', type: 'error' });
+    }
+  };
+
+  const captureFromCamera = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = 400; canvas.height = 400;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const vw = video.videoWidth; const vh = video.videoHeight;
+    const size = Math.min(vw, vh);
+    ctx.drawImage(video, (vw - size) / 2, (vh - size) / 2, size, size, 0, 0, 400, 400);
+    setPhotoPreview(canvas.toDataURL('image/png'));
+    stopCamera();
+  };
+
+  const stopCamera = () => {
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+    setCameraOpen(false);
   };
 
   const createStudent = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!user?.college) { setNotice({ message: 'No college associated with your account.', type: 'error' }); return; }
+    if (!form.name.trim())      { setNotice({ message: 'Student Name is required.', type: 'error' }); return; }
+    if (!form.parentage.trim()) { setNotice({ message: 'Parentage is required.', type: 'error' }); return; }
+    if (!form.phone.trim())     { setNotice({ message: 'Contact Number is required.', type: 'error' }); return; }
+
     const record: StudentRecord = {
-      id: `${Date.now()}`,
-      college: user.college,
-      ...form,
-      photo: photoPreview || undefined,
-      createdBy: user?.name || user?.email || 'Unknown',
-      createdAt: new Date().toISOString(),
+      id:           `${Date.now()}`,
+      college:      user.college,
+      name:         form.name,
+      parentage:    form.parentage    || undefined,
+      studentId:    form.studentId    || undefined,
+      rollNo:       form.rollNo       || undefined,
+      studentClass: form.studentClass || undefined,
+      course:       form.course       || undefined,
+      year:         form.year         || undefined,
+      email:        form.email        || undefined,
+      phone:        form.phone,
+      busStop:      form.busStop      || undefined,
+      bloodGroup:   form.bloodGroup   || undefined,
+      photo:        photoPreview      || undefined,
+      createdBy:    user?.name || user?.email || 'Unknown',
+      createdAt:    new Date().toISOString(),
     };
+
     const result = await addStudentToDb(record);
     if (result.success) {
       setStudents(prev => [record, ...prev]);
-      setNotice({ message: 'Student record saved successfully.', type: 'success' });
-      setForm({ name: '', studentId: '', course: '', year: '', email: '', phone: '' });
+      const newCount = submissionCount + 1;
+      setSubmissionCount(newCount);
+      setNotice({ message: `Student No. ${newCount} registered successfully.`, type: 'success' });
+      setForm(EMPTY_FORM);
       setPhotoPreview(null);
       setUploadFile(null);
-      setTimeout(() => setNotice(null), 3000);
+      setTimeout(() => setNotice(null), 4000);
     } else {
       setNotice({ message: 'Failed to save student record.', type: 'error' });
     }
@@ -248,35 +381,38 @@ export default function FacultyAdminPage() {
   const handleExcelUpload = async () => {
     if (!uploadFile) { setNotice({ message: 'Select an Excel file first.', type: 'error' }); return; }
     try {
-      const data = await uploadFile.arrayBuffer();
-      const wb = XLSX.read(data, { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' });
+      const data  = await uploadFile.arrayBuffer();
+      const wb    = XLSX.read(data, { type: 'array' });
+      const ws    = wb.Sheets[wb.SheetNames[0]];
+      const rows  = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' });
       const [headers, ...values] = rows;
       if (!headers || !Array.isArray(headers)) {
         setNotice({ message: 'Excel file appears empty or invalid.', type: 'error' }); return;
       }
-      const norm = headers.map((h) => String(h ?? '').trim().toLowerCase());
-      const records: StudentRecord[] = values.map((row) => {
-        const entry = Array.isArray(row)
+      const norm = headers.map(h => String(h ?? '').trim().toLowerCase());
+      const records: StudentRecord[] = values.map(row => {
+        const e = Array.isArray(row)
           ? row.reduce<Record<string, string>>((acc, v, i) => { acc[norm[i] ?? ''] = String(v ?? ''); return acc; }, {})
           : {};
         return {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          college: user?.college || '',
-          name: entry.name || 'Unnamed Student',
-          studentId: entry['student id'] || entry.studentid || 'N/A',
-          course: entry.course || 'General Studies',
-          year: entry.year || '1',
-          email: entry.email || 'no-email@example.com',
-          phone: entry.phone || 'N/A',
-          createdBy: user?.name || user?.email || 'Imported',
-          createdAt: new Date().toISOString(),
+          id:           `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          college:      user?.college || '',
+          name:         e.name || 'Unnamed Student',
+          parentage:    e.parentage              || undefined,
+          studentId:    e['student id'] || e.studentid || undefined,
+          rollNo:       e['roll no.']   || e.rollno    || undefined,
+          studentClass: e.class                  || undefined,
+          course:       e.course                 || undefined,
+          year:         e.year                   || undefined,
+          email:        e.email                  || undefined,
+          phone:        e.phone || 'N/A',
+          busStop:      e['bus stop']            || undefined,
+          bloodGroup:   e['blood group']         || undefined,
+          createdBy:    user?.name || user?.email || 'Imported',
+          createdAt:    new Date().toISOString(),
         };
       });
-      for (const record of records) {
-        await addStudentToDb(record);
-      }
+      for (const record of records) await addStudentToDb(record);
       setStudents(prev => [...records, ...prev]);
       setNotice({ message: `${records.length} records imported successfully.`, type: 'success' });
       setUploadFile(null);
@@ -287,9 +423,13 @@ export default function FacultyAdminPage() {
   };
 
   const downloadTemplate = () => {
-    const ws = XLSX.utils.json_to_sheet([
-      { Name: 'John Doe', 'Student ID': 'STU-001', Course: 'Computer Science', Year: '2024', Email: 'john@college.edu', Phone: '+91 98765 43210' },
-    ]);
+    const ws = XLSX.utils.json_to_sheet([{
+      Name: 'John Doe', Parentage: 'S/O Robert Doe',
+      'Student ID': 'STU-001', 'Roll No.': '42', Class: '10th',
+      Course: 'Computer Science', Year: '2024',
+      Email: 'john@college.edu', Phone: '+91 98765 43210',
+      'Bus Stop': 'Main Bus Stand', 'Blood Group': 'O+',
+    }]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Students');
     XLSX.writeFile(wb, 'student-import-template.xlsx');
@@ -453,9 +593,17 @@ export default function FacultyAdminPage() {
                     {studentsLoading ? 'Loading…' : `${students.length} students · ${user.college}`}
                   </p>
                 </div>
-                <button onClick={exportExcel} className="p-2 sm:p-2.5 bg-white border border-slate-200 rounded text-slate-600 hover:bg-slate-50 transition shadow-sm" title="Export Excel">
-                  <FiDownload className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button onClick={exportZip} className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-slate-900 text-white rounded font-black text-sm hover:bg-violet-600 transition shadow-sm active:scale-95">
+                    <FiArchive className="w-4 h-4 shrink-0" />
+                    <span className="hidden sm:inline">Export ZIP</span>
+                    <span className="sm:hidden">ZIP</span>
+                  </button>
+                  <button onClick={exportExcel} className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-white border border-slate-200 rounded font-black text-sm text-slate-600 hover:bg-slate-50 transition shadow-sm active:scale-95">
+                    <FiDownload className="w-4 h-4 shrink-0" />
+                    <span className="hidden sm:inline">Excel</span>
+                  </button>
+                </div>
               </div>
 
               <div className="bg-white rounded border border-slate-200 shadow-sm p-3 sm:p-4 lg:p-6">
@@ -539,72 +687,119 @@ export default function FacultyAdminPage() {
 
               <div className="grid gap-6 md:grid-cols-[1.1fr_0.9fr]">
 
-                {/* Manual form */}
+                {/* ── Manual form ── */}
                 <div className="bg-white rounded border border-slate-200 shadow-sm p-4 lg:p-6">
-                  <div className="flex items-center gap-3 mb-6">
+
+                  <div className="flex items-start gap-3 mb-6">
                     <div className="bg-violet-500 p-2.5 rounded text-white shrink-0">
                       <FiUserPlus className="w-4 h-4" />
                     </div>
-                    <div>
+                    <div className="flex-1 min-w-0">
                       <h2 className="text-base font-black text-slate-900">Manual Registration</h2>
-                      <p className="text-xs text-slate-500 mt-0.5">Fill in student details below</p>
+                      <p className="text-xs text-slate-500 mt-0.5">Fields marked * are required</p>
                     </div>
+                    {submissionCount > 0 && (
+                      <div className="shrink-0 text-right bg-violet-50 border border-violet-100 rounded-lg px-3 py-2">
+                        <p className="text-[0.55rem] font-black uppercase tracking-widest text-violet-500">Student No.</p>
+                        <p className="text-xl font-black text-violet-700 leading-none">{submissionCount}</p>
+                      </div>
+                    )}
                   </div>
 
                   <form onSubmit={createStudent} className="space-y-4">
                     <div className="grid gap-4 sm:grid-cols-2">
-                      <label className="block">
-                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Institution</span>
-                        <input value={user.college ?? ''} readOnly className="input-field bg-slate-50 text-slate-500 cursor-not-allowed" />
-                      </label>
-                      <label className="block">
-                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Course</span>
-                        <input value={form.course} onChange={(e) => setForm({ ...form, course: e.target.value })} required className="input-field" placeholder="e.g. Computer Science" />
-                      </label>
+
                       <label className="block sm:col-span-2">
-                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Full Legal Name</span>
-                        <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required className="input-field" placeholder="Student's full name" />
+                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Institution</span>
+                        <input value={user.college ?? ''} readOnly className="input-field bg-slate-50 text-slate-500 cursor-not-allowed text-sm" />
                       </label>
+
+                      <label className="block sm:col-span-2">
+                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Student Name *</span>
+                        <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Full legal name" className="input-field text-sm" />
+                      </label>
+
+                      <label className="block sm:col-span-2">
+                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Parentage *</span>
+                        <input value={form.parentage} onChange={e => setForm(f => ({ ...f, parentage: e.target.value }))} placeholder="e.g. S/O Ramesh Kumar" className="input-field text-sm" />
+                      </label>
+
                       <label className="block">
-                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Registration ID</span>
-                        <input value={form.studentId} onChange={(e) => setForm({ ...form, studentId: e.target.value })} required className="input-field" placeholder="ID-00000" />
+                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Contact Number *</span>
+                        <input type="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="+91 00000 00000" className="input-field text-sm" />
                       </label>
+
                       <label className="block">
-                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Academic Year</span>
-                        <input value={form.year} onChange={(e) => setForm({ ...form, year: e.target.value })} required className="input-field" placeholder="e.g. 2024" />
+                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Roll No. <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span></span>
+                        <input value={form.rollNo} onChange={e => setForm(f => ({ ...f, rollNo: e.target.value }))} placeholder="e.g. 42" className="input-field text-sm" />
                       </label>
+
                       <label className="block">
-                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Email</span>
-                        <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required className="input-field" placeholder="name@college.edu" />
+                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Registration ID <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span></span>
+                        <input value={form.studentId} onChange={e => setForm(f => ({ ...f, studentId: e.target.value }))} placeholder="e.g. STU-001" className="input-field text-sm" />
                       </label>
+
                       <label className="block">
-                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Contact</span>
-                        <input type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} required className="input-field" placeholder="+91 00000 00000" />
+                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Class <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span></span>
+                        <input value={form.studentClass} onChange={e => setForm(f => ({ ...f, studentClass: e.target.value }))} placeholder="e.g. 10th / B.Tech 3rd" className="input-field text-sm" />
                       </label>
+
+                      <label className="block">
+                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Course <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span></span>
+                        <input value={form.course} onChange={e => setForm(f => ({ ...f, course: e.target.value }))} placeholder="e.g. Computer Science" className="input-field text-sm" />
+                      </label>
+
+                      <label className="block">
+                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Academic Year <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span></span>
+                        <input value={form.year} onChange={e => setForm(f => ({ ...f, year: e.target.value }))} placeholder="e.g. 2024–25" className="input-field text-sm" />
+                      </label>
+
+                      <label className="block">
+                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Blood Group <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span></span>
+                        <input value={form.bloodGroup} onChange={e => setForm(f => ({ ...f, bloodGroup: e.target.value }))} placeholder="e.g. O+" className="input-field text-sm" />
+                      </label>
+
+                      <label className="block">
+                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Email ID <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span></span>
+                        <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="student@email.com" className="input-field text-sm" />
+                      </label>
+
+                      <label className="block">
+                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Bus Stop <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span></span>
+                        <input value={form.busStop} onChange={e => setForm(f => ({ ...f, busStop: e.target.value }))} placeholder="e.g. Main Bus Stand" className="input-field text-sm" />
+                      </label>
+
+                      {/* Student Photograph */}
                       <div className="sm:col-span-2">
-                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Profile Photograph</span>
-                        <div className="relative group">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => { const f = e.target.files?.[0] ?? null; setUploadFile(f); handlePhoto(f); }}
-                            className="opacity-0 absolute inset-0 w-full h-full z-10 cursor-pointer"
-                          />
-                          <div className="flex items-center justify-between gap-3 p-4 rounded border-2 border-dashed border-slate-200 group-hover:border-violet-500 transition bg-slate-50/50">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 bg-white rounded shadow-sm flex items-center justify-center text-slate-400 shrink-0 overflow-hidden">
-                                {photoPreview
-                                  ? <img src={photoPreview} className="w-full h-full object-cover" alt="" />
-                                  : <FiUpload className="w-4 h-4" />}
-                              </div>
-                              <div>
-                                <p className="text-sm font-bold text-slate-700">{photoPreview ? 'Photo Ready' : 'Choose File'}</p>
-                                <p className="text-xs text-slate-400">{photoPreview ? 'Compressed for DB' : 'JPG, PNG'}</p>
-                              </div>
-                            </div>
-                            <span className="px-3 py-1.5 bg-white rounded border border-slate-200 text-xs font-bold text-slate-600 group-hover:text-violet-600 transition shrink-0">Browse</span>
+                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Student Photograph <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span></span>
+                        <div className="flex gap-2 mb-3">
+                          <div className="relative flex-1">
+                            <input type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0] ?? null; setUploadFile(f); handlePhotoFile(f); }} className="opacity-0 absolute inset-0 w-full h-full z-10 cursor-pointer" />
+                            <button type="button" className="w-full flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-bold py-2.5 rounded hover:bg-violet-50 hover:border-violet-300 hover:text-violet-600 transition text-sm">
+                              <FiUpload className="w-4 h-4" /> Upload
+                            </button>
                           </div>
+                          <button type="button" onClick={startCamera} className="flex-1 flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-bold py-2.5 rounded hover:bg-green-50 hover:border-green-300 hover:text-green-600 transition text-sm">
+                            <FiCamera className="w-4 h-4" /> Capture
+                          </button>
                         </div>
+                        {photoPreview ? (
+                          <div className="flex items-center gap-3 p-3 rounded border border-slate-200 bg-slate-50">
+                            <img src={photoPreview} alt="Preview" className="w-14 h-14 object-cover rounded border border-slate-200 shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-slate-700">Photo ready</p>
+                              <p className="text-xs text-slate-400">Will be saved as PNG</p>
+                            </div>
+                            <button type="button" onClick={() => { setPhotoPreview(null); setUploadFile(null); }} className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition">
+                              <FiX className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-3 p-3 rounded border border-dashed border-slate-200 bg-slate-50/50 text-slate-400">
+                            <FiCamera className="w-5 h-5 shrink-0" />
+                            <p className="text-xs font-medium">No photo selected — Upload a file or use Capture</p>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -620,7 +815,7 @@ export default function FacultyAdminPage() {
                   </form>
                 </div>
 
-                {/* Bulk + Export */}
+                {/* ── Bulk + Export ── */}
                 <div className="space-y-6">
                   <div className="bg-white rounded border border-slate-200 shadow-sm p-4 lg:p-6">
                     <div className="flex items-center gap-3 mb-5">
@@ -633,21 +828,11 @@ export default function FacultyAdminPage() {
                       </div>
                     </div>
                     <div className="space-y-3">
-                      <button
-                        type="button"
-                        onClick={downloadTemplate}
-                        className="w-full flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-black py-2.5 rounded hover:bg-violet-50 hover:border-violet-300 hover:text-violet-600 transition text-sm"
-                      >
-                        <FiDownload className="w-4 h-4" />
-                        Download Excel Template
+                      <button type="button" onClick={downloadTemplate} className="w-full flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-black py-2.5 rounded hover:bg-violet-50 hover:border-violet-300 hover:text-violet-600 transition text-sm">
+                        <FiDownload className="w-4 h-4" /> Download Excel Template
                       </button>
                       <div className="relative group">
-                        <input
-                          type="file"
-                          accept=".xlsx,.xls"
-                          onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
-                          className="opacity-0 absolute inset-0 w-full h-full z-10 cursor-pointer"
-                        />
+                        <input type="file" accept=".xlsx,.xls" onChange={e => setUploadFile(e.target.files?.[0] ?? null)} className="opacity-0 absolute inset-0 w-full h-full z-10 cursor-pointer" />
                         <div className="p-8 rounded border-2 border-dashed border-slate-200 group-hover:border-violet-500 transition bg-slate-50/50 text-center space-y-2">
                           <FiUpload className="w-6 h-6 mx-auto text-slate-300 group-hover:text-violet-500 transition" />
                           <p className="text-sm font-bold text-slate-500">{uploadFile ? uploadFile.name : 'Drop Excel File Here'}</p>
@@ -660,7 +845,7 @@ export default function FacultyAdminPage() {
                     </div>
                   </div>
 
-                  <div id="fa-registry-section" className="bg-slate-900 rounded border border-slate-800 p-4 lg:p-6 text-white">
+                  <div className="bg-slate-900 rounded border border-slate-800 p-4 lg:p-6 text-white">
                     <div className="flex items-center gap-3 mb-5">
                       <div className="bg-white/10 p-2.5 rounded border border-white/10 text-violet-400 shrink-0">
                         <FiDownload className="w-4 h-4" />
@@ -670,11 +855,14 @@ export default function FacultyAdminPage() {
                         <p className="text-xs text-white/50 mt-0.5">Download student data</p>
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <button type="button" onClick={exportExcel} className="bg-white text-slate-900 font-black py-3 rounded hover:bg-slate-100 transition text-sm flex items-center justify-center gap-2 active:scale-95">
+                    <div className="grid grid-cols-3 gap-2">
+                      <button type="button" onClick={exportZip} className="bg-white text-slate-900 font-black py-3 rounded hover:bg-slate-100 transition text-sm flex items-center justify-center gap-1.5 active:scale-95">
+                        <FiArchive className="w-4 h-4" /> ZIP
+                      </button>
+                      <button type="button" onClick={exportExcel} className="bg-slate-800 text-white font-black py-3 rounded hover:bg-slate-700 transition border border-white/10 text-sm flex items-center justify-center gap-1.5 active:scale-95">
                         <FiDownload className="w-4 h-4" /> Excel
                       </button>
-                      <button type="button" onClick={exportPDF} className="bg-slate-800 text-white font-black py-3 rounded hover:bg-slate-700 transition border border-white/10 text-sm flex items-center justify-center gap-2 active:scale-95">
+                      <button type="button" onClick={exportPDF} className="bg-slate-800 text-white font-black py-3 rounded hover:bg-slate-700 transition border border-white/10 text-sm flex items-center justify-center gap-1.5 active:scale-95">
                         <FiDownload className="w-4 h-4" /> PDF
                       </button>
                     </div>
@@ -898,6 +1086,26 @@ export default function FacultyAdminPage() {
 
         </main>
       </div>
+
+      {/* Camera modal */}
+      {cameraOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+              <h3 className="font-black text-slate-900 text-sm">Capture Photo</h3>
+              <button onClick={stopCamera} className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition">
+                <FiX className="w-4 h-4" />
+              </button>
+            </div>
+            <video ref={videoRef} autoPlay playsInline muted className="w-full aspect-square object-cover bg-black" />
+            <div className="p-4">
+              <button type="button" onClick={captureFromCamera} className="w-full bg-violet-600 text-white font-black py-3 rounded-lg hover:bg-violet-700 transition active:scale-95 flex items-center justify-center gap-2">
+                <FiCamera className="w-4 h-4" /> Take Photo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mobile bottom tab bar */}
       <nav className="fixed bottom-0 inset-x-0 z-40 lg:hidden bg-slate-900 border-t border-white/10 flex">
