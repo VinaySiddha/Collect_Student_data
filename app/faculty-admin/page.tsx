@@ -16,7 +16,9 @@ import {
   restoreStudentInDb,
   getDeletedUsersByCollege,
   restoreUserInDb,
+  addAuditLog,
 } from '@/lib/actions';
+import { useInactivityLogout } from '@/hooks/useInactivityLogout';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { DbUser, StudentRecord } from '@/lib/types';
@@ -70,6 +72,9 @@ export default function FacultyAdminPage() {
   const streamRef = useRef<MediaStream | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
 
+  // Bulk import photos
+  const [bulkPhotoMap, setBulkPhotoMap] = useState<Map<string, string>>(new Map());
+
   // Deleted students
   const [deletedStudents, setDeletedStudents] = useState<StudentRecord[]>([]);
   const [showDeletedStudents, setShowDeletedStudents] = useState(false);
@@ -85,6 +90,9 @@ export default function FacultyAdminPage() {
     if (!user) { router.push('/login'); return; }
     if (user.role !== 'faculty_admin') { router.push('/faculty'); return; }
   }, [user, initialized, router]);
+
+  // ── Inactivity logout (15 min) ────────────────────────────────────────────────
+  const { warningVisible, secondsLeft, stayLoggedIn } = useInactivityLogout(logout);
 
   // Load college's students — also seed the registration counter from existing count
   useEffect(() => {
@@ -210,6 +218,11 @@ export default function FacultyAdminPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Students');
     XLSX.writeFile(wb, `${user?.college ?? 'College'}_Students_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    addAuditLog({
+      userEmail: user?.email ?? '', userName: user?.name ?? '',
+      action: 'export_excel', entityType: 'students',
+      details: `Exported ${sortedStudents.length} records (Excel) — ${user?.college}`,
+    }).catch(() => {});
   };
 
   const exportZip = async () => {
@@ -253,6 +266,11 @@ export default function FacultyAdminPage() {
     const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
     saveAs(blob, `${user?.college ?? 'College'}_export_${new Date().toISOString().slice(0, 10)}.zip`);
     showToast(`Exported ${sortedStudents.length} students · ${photoCount} photo${photoCount !== 1 ? 's' : ''} in photos/ folder.`, 'success');
+    addAuditLog({
+      userEmail: user?.email ?? '', userName: user?.name ?? '',
+      action: 'export_zip', entityType: 'students',
+      details: `Exported ${sortedStudents.length} records, ${photoCount} photos (ZIP) — ${user?.college}`,
+    }).catch(() => {});
   };
 
   const showToast = (text: string, type: 'success' | 'error') => {
@@ -320,6 +338,34 @@ export default function FacultyAdminPage() {
     setCameraOpen(false);
   };
 
+  const handleBulkPhotos = (files: FileList | null) => {
+    if (!files || files.length === 0) { setBulkPhotoMap(new Map()); return; }
+    const map = new Map<string, string>();
+    let pending = files.length;
+    Array.from(files).forEach(file => {
+      const stem = file.name.replace(/\.[^.]+$/, '').toLowerCase().trim();
+      const reader = new FileReader();
+      reader.onload = e => {
+        const src = e.target?.result as string;
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX = 400;
+          let { width, height } = img;
+          if (width > height) { if (width > MAX) { height = Math.round(height * MAX / width); width = MAX; } }
+          else                { if (height > MAX) { width = Math.round(width * MAX / height); height = MAX; } }
+          canvas.width = width; canvas.height = height;
+          canvas.getContext('2d')?.drawImage(img, 0, 0, width, height);
+          map.set(stem, canvas.toDataURL('image/png'));
+          pending--;
+          if (pending === 0) setBulkPhotoMap(new Map(map));
+        };
+        img.src = src;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
   const createStudent = (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!user?.college) { setNotice({ message: 'No college associated with your account.', type: 'error' }); return; }
@@ -363,6 +409,11 @@ export default function FacultyAdminPage() {
         setPhotoPreview(null);
         setUploadFile(null);
         showToast('Student registered successfully.', 'success');
+        addAuditLog({
+          userEmail: user?.email ?? '', userName: user?.name ?? '',
+          action: 'add_student', entityType: 'student', entityId: confirmStudent.id,
+          details: `Registered: ${confirmStudent.name} (${confirmStudent.college})`,
+        }).catch(() => {});
       } else {
         setConfirmStudent(null);
         showToast('Failed to save student record.', 'error');
@@ -417,14 +468,23 @@ export default function FacultyAdminPage() {
           createdAt:    new Date().toISOString(),
         };
       });
+      // Attach matched photos by row index (1.jpg…) or roll number
+      const recordsWithPhotos = records.map((record, i) => {
+        const byIndex = bulkPhotoMap.get(String(i + 1));
+        const byRoll  = record.rollNo ? bulkPhotoMap.get(record.rollNo.toLowerCase().trim()) : undefined;
+        const photo   = byIndex ?? byRoll;
+        return photo ? { ...record, photo } : record;
+      });
+
       let saved = 0;
-      for (const record of records) {
+      for (const record of recordsWithPhotos) {
         const result = await addStudentToDb(record);
         if (result.success) saved++;
       }
-      setStudents(prev => [...records.slice(0, saved), ...prev]);
+      setStudents(prev => [...recordsWithPhotos.slice(0, saved), ...prev]);
       setSubmissionCount(c => c + saved);
       setExcelFile(null);
+      setBulkPhotoMap(new Map());
       setBulkImportOpen(false);
       showToast(`${saved} of ${records.length} records imported successfully.`, 'success');
     } catch {
@@ -1065,7 +1125,7 @@ export default function FacultyAdminPage() {
                 <h2 className="text-base font-black text-slate-900">Bulk Import</h2>
                 <p className="text-xs text-slate-500 font-medium mt-0.5">Import multiple students from an Excel sheet</p>
               </div>
-              <button onClick={() => { setBulkImportOpen(false); setExcelFile(null); }} disabled={importLoading} className="w-8 h-8 flex items-center justify-center rounded text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition disabled:opacity-30 disabled:pointer-events-none">
+              <button onClick={() => { setBulkImportOpen(false); setExcelFile(null); setBulkPhotoMap(new Map()); }} disabled={importLoading} className="w-8 h-8 flex items-center justify-center rounded text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition disabled:opacity-30 disabled:pointer-events-none">
                 <FiX className="w-4 h-4" />
               </button>
             </div>
@@ -1106,9 +1166,39 @@ export default function FacultyAdminPage() {
                 )}
               </div>
 
+              {/* Step 3 — photos */}
+              <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+                <p className="text-[0.65rem] font-black uppercase tracking-widest text-slate-400">Step 3 — Student Photos <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span></p>
+                <p className="text-xs text-slate-500 font-medium">
+                  Name each photo by <span className="font-black text-slate-700">row number</span> (1.jpg, 2.jpg…) or by <span className="font-black text-slate-700">Roll No.</span> (42.jpg…). Supported: JPG, PNG, WEBP.
+                </p>
+                <div className="relative group">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={e => handleBulkPhotos(e.target.files)}
+                    className="opacity-0 absolute inset-0 w-full h-full z-10 cursor-pointer"
+                    disabled={importLoading}
+                  />
+                  <div className={`p-5 rounded-lg border-2 border-dashed transition text-center space-y-2 ${bulkPhotoMap.size > 0 ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 group-hover:border-violet-400 bg-slate-50/50'}`}>
+                    <FiCamera className={`w-5 h-5 mx-auto transition ${bulkPhotoMap.size > 0 ? 'text-emerald-500' : 'text-slate-300 group-hover:text-violet-400'}`} />
+                    <p className="text-sm font-bold text-slate-600">
+                      {bulkPhotoMap.size > 0 ? `${bulkPhotoMap.size} photo${bulkPhotoMap.size !== 1 ? 's' : ''} selected` : 'Select student photos'}
+                    </p>
+                    <p className="text-xs text-slate-400">Click to browse — select multiple images</p>
+                  </div>
+                </div>
+                {bulkPhotoMap.size > 0 && (
+                  <button onClick={() => setBulkPhotoMap(new Map())} className="text-xs text-rose-500 hover:text-rose-700 font-bold transition">
+                    Clear photos
+                  </button>
+                )}
+              </div>
+
               {/* Info note */}
               <p className="text-xs text-slate-400 font-medium px-1">
-                The college will be set automatically to <span className="font-black text-slate-600">{user.college}</span>. Photo column is not supported in bulk import — add photos individually after import.
+                The college will be set automatically to <span className="font-black text-slate-600">{user.college}</span>.
               </p>
             </div>
 
@@ -1124,7 +1214,7 @@ export default function FacultyAdminPage() {
                   : <><FiUpload className="w-4 h-4" /> Process All Records</>}
               </button>
               <button
-                onClick={() => { setBulkImportOpen(false); setExcelFile(null); }}
+                onClick={() => { setBulkImportOpen(false); setExcelFile(null); setBulkPhotoMap(new Map()); }}
                 disabled={importLoading}
                 className="px-5 py-3 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition disabled:opacity-50 disabled:pointer-events-none"
               >
@@ -1266,6 +1356,36 @@ export default function FacultyAdminPage() {
         }`}>
           <span className="shrink-0">{toast.type === 'success' ? '✅' : '⚠️'}</span>
           <span className="truncate">{toast.text}</span>
+        </div>
+      )}
+
+      {/* Inactivity warning */}
+      {warningVisible && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 text-center space-y-4">
+            <div className="w-14 h-14 rounded-full bg-amber-100 flex items-center justify-center mx-auto text-2xl">⏱️</div>
+            <div>
+              <h2 className="text-lg font-black text-slate-900">Session Expiring</h2>
+              <p className="text-sm text-slate-500 font-medium mt-1">
+                You will be logged out due to inactivity in{' '}
+                <span className="font-black text-amber-600">{secondsLeft}s</span>.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={stayLoggedIn}
+                className="flex-1 bg-violet-600 text-white font-black py-2.5 rounded-lg hover:bg-violet-700 transition text-sm"
+              >
+                Stay Logged In
+              </button>
+              <button
+                onClick={logout}
+                className="flex-1 border border-slate-200 text-slate-600 font-black py-2.5 rounded-lg hover:bg-slate-50 transition text-sm"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

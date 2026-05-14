@@ -7,17 +7,19 @@ import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
 import StudentTable from '@/components/StudentTable';
 import ConfirmDialog from '@/components/ConfirmDialog';
-import { FiUsers, FiDownload, FiPlus, FiTrash2, FiMapPin, FiLogOut, FiLayout, FiUser, FiMail, FiLock, FiBook, FiChevronDown, FiChevronLeft, FiChevronRight, FiSearch, FiMenu, FiX, FiEdit2, FiSave, FiRotateCcw, FiArchive, FiUpload, FiCamera, FiRefreshCw } from 'react-icons/fi';
+import { FiUsers, FiDownload, FiPlus, FiTrash2, FiMapPin, FiLogOut, FiLayout, FiUser, FiMail, FiLock, FiBook, FiChevronDown, FiChevronLeft, FiChevronRight, FiSearch, FiMenu, FiX, FiEdit2, FiSave, FiRotateCcw, FiArchive, FiUpload, FiCamera, FiRefreshCw, FiFileText, FiActivity } from 'react-icons/fi';
 import { GoSidebarExpand, GoSidebarCollapse } from 'react-icons/go';
 import {
   registerUser, getUsers, deleteUser, updateUser, changeMyPassword,
   getDeletedStudents, getDeletedUsers, getDeletedColleges,
   restoreStudentInDb, restoreUserInDb, restoreCollegeFromDb,
+  getAuditLogs, getLoginHistory,
 } from '@/lib/actions';
 import { hashPasswordClient } from '@/lib/clientHash';
-import { DbUser, StudentRecord } from '@/lib/types';
+import { AuditLog, DbUser, LoginHistory, StudentRecord } from '@/lib/types';
+import { useInactivityLogout } from '@/hooks/useInactivityLogout';
 
-type View = 'dashboard' | 'institutes' | 'users';
+type View = 'dashboard' | 'institutes' | 'users' | 'logs';
 
 export default function AdminPage() {
   const router = useRouter();
@@ -65,6 +67,15 @@ export default function AdminPage() {
   const [deletedColleges, setDeletedColleges] = useState<{ name: string; deletedBy: string | null }[]>([]);
   const [showDeletedColleges, setShowDeletedColleges] = useState(false);
 
+  // Logs state
+  const [auditLogs, setAuditLogs]         = useState<AuditLog[]>([]);
+  const [loginHistory, setLoginHistory]   = useState<LoginHistory[]>([]);
+  const [logsLoading, setLogsLoading]     = useState(false);
+  const [logsTab, setLogsTab]             = useState<'audit' | 'login'>('audit');
+
+  // Inactivity logout (15 min)
+  const { warningVisible, secondsLeft, stayLoggedIn } = useInactivityLogout(logout);
+
   useEffect(() => {
     if (!initialized) return;
     if (!user) {
@@ -100,6 +111,17 @@ export default function AdminPage() {
   useEffect(() => {
     if (activeView === 'institutes') {
       getDeletedColleges().then(setDeletedColleges);
+    }
+  }, [activeView]);
+
+  useEffect(() => {
+    if (activeView === 'logs') {
+      setLogsLoading(true);
+      Promise.all([getAuditLogs(), getLoginHistory()]).then(([audit, login]) => {
+        setAuditLogs(audit);
+        setLoginHistory(login);
+        setLogsLoading(false);
+      });
     }
   }, [activeView]);
 
@@ -468,6 +490,7 @@ export default function AdminPage() {
             { view: 'dashboard' as const, icon: <FiLayout className="w-4 h-4 shrink-0" />, label: 'Dashboard' },
             { view: 'institutes' as const, icon: <FiMapPin className="w-4 h-4 shrink-0" />, label: 'Institutes' },
             { view: 'users' as const, icon: <FiUsers className="w-4 h-4 shrink-0" />, label: 'Users' },
+            { view: 'logs' as const, icon: <FiActivity className="w-4 h-4 shrink-0" />, label: 'Audit Logs' },
           ].map(({ view, icon, label }) => (
             <button
               key={view}
@@ -1252,6 +1275,147 @@ export default function AdminPage() {
             </div>
           )}
 
+          {/* ── Logs ── */}
+          {activeView === 'logs' && (
+            <div className="space-y-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h1 className="text-xl sm:text-2xl font-black text-slate-900">Audit Logs</h1>
+                  <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">Track all actions, exports, and login events</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setLogsLoading(true);
+                    Promise.all([getAuditLogs(), getLoginHistory()]).then(([a, l]) => {
+                      setAuditLogs(a); setLoginHistory(l); setLogsLoading(false);
+                    });
+                  }}
+                  className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded font-black text-sm text-slate-600 hover:bg-slate-50 transition shadow-sm active:scale-95"
+                >
+                  <FiRefreshCw className="w-4 h-4" /> Refresh
+                </button>
+              </div>
+
+              {/* Tab switcher */}
+              <div className="flex gap-1 p-1 bg-slate-100 rounded-lg w-fit">
+                {(['audit', 'login'] as const).map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setLogsTab(tab)}
+                    className={`flex items-center gap-2 px-4 py-2 rounded text-sm font-black transition ${logsTab === tab ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  >
+                    {tab === 'audit' ? <FiFileText className="w-3.5 h-3.5" /> : <FiActivity className="w-3.5 h-3.5" />}
+                    {tab === 'audit' ? `Audit Trail (${auditLogs.length})` : `Login History (${loginHistory.length})`}
+                  </button>
+                ))}
+              </div>
+
+              {logsLoading ? (
+                <div className="py-16 text-center text-sm text-slate-400 font-bold">Loading logs…</div>
+              ) : logsTab === 'audit' ? (
+                <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+                  {auditLogs.length === 0 ? (
+                    <p className="px-6 py-16 text-center text-sm text-slate-400 font-bold">No audit logs yet.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm border-separate border-spacing-0">
+                        <thead className="bg-slate-50 text-slate-400 text-[0.6rem] font-black uppercase tracking-widest sticky top-0">
+                          <tr>
+                            <th className="px-4 py-3 text-left whitespace-nowrap">Time</th>
+                            <th className="px-4 py-3 text-left whitespace-nowrap">User</th>
+                            <th className="px-4 py-3 text-left whitespace-nowrap">Action</th>
+                            <th className="px-4 py-3 text-left hidden md:table-cell">Details</th>
+                            <th className="px-4 py-3 text-left hidden lg:table-cell whitespace-nowrap">IP Address</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {auditLogs.map(log => (
+                            <tr key={log.id} className="hover:bg-slate-50/60 transition">
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <p className="text-xs font-bold text-slate-500">{new Date(log.createdAt).toLocaleDateString()}</p>
+                                <p className="text-[0.65rem] text-slate-400">{new Date(log.createdAt).toLocaleTimeString()}</p>
+                              </td>
+                              <td className="px-4 py-3">
+                                <p className="font-bold text-slate-800 text-sm truncate max-w-[120px]">{log.userName || log.userEmail}</p>
+                                <p className="text-[0.65rem] text-slate-400 truncate max-w-[120px]">{log.userEmail}</p>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={`inline-flex items-center px-2 py-1 rounded text-[0.65rem] font-black uppercase tracking-wide ${
+                                  log.action.startsWith('export') ? 'bg-blue-50 text-blue-600' :
+                                  log.action.startsWith('delete') ? 'bg-rose-50 text-rose-600' :
+                                  log.action.startsWith('add') ? 'bg-emerald-50 text-emerald-600' :
+                                  'bg-slate-100 text-slate-500'
+                                }`}>
+                                  {log.action.replace(/_/g, ' ')}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 hidden md:table-cell">
+                                <p className="text-xs text-slate-500 truncate max-w-[200px]">{log.details ?? '—'}</p>
+                              </td>
+                              <td className="px-4 py-3 hidden lg:table-cell">
+                                <p className="text-xs font-mono text-slate-400">{log.ipAddress ?? '—'}</p>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+                  {loginHistory.length === 0 ? (
+                    <p className="px-6 py-16 text-center text-sm text-slate-400 font-bold">No login history yet.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm border-separate border-spacing-0">
+                        <thead className="bg-slate-50 text-slate-400 text-[0.6rem] font-black uppercase tracking-widest sticky top-0">
+                          <tr>
+                            <th className="px-4 py-3 text-left whitespace-nowrap">Time</th>
+                            <th className="px-4 py-3 text-left whitespace-nowrap">User</th>
+                            <th className="px-4 py-3 text-left whitespace-nowrap hidden lg:table-cell">IP Address</th>
+                            <th className="px-4 py-3 text-left hidden md:table-cell">Device / Browser</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {loginHistory.map(entry => {
+                            const ua = entry.userAgent ?? '';
+                            const isMobile = /mobile|android|iphone|ipad/i.test(ua);
+                            const browser =
+                              /edg/i.test(ua) ? 'Edge' :
+                              /chrome/i.test(ua) ? 'Chrome' :
+                              /safari/i.test(ua) ? 'Safari' :
+                              /firefox/i.test(ua) ? 'Firefox' : 'Other';
+                            return (
+                              <tr key={entry.id} className="hover:bg-slate-50/60 transition">
+                                <td className="px-4 py-3 whitespace-nowrap">
+                                  <p className="text-xs font-bold text-slate-500">{new Date(entry.createdAt).toLocaleDateString()}</p>
+                                  <p className="text-[0.65rem] text-slate-400">{new Date(entry.createdAt).toLocaleTimeString()}</p>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <p className="font-bold text-slate-800 text-sm truncate max-w-[140px]">{entry.userName || entry.userEmail}</p>
+                                  <p className="text-[0.65rem] text-slate-400 truncate max-w-[140px]">{entry.userEmail}</p>
+                                </td>
+                                <td className="px-4 py-3 hidden lg:table-cell">
+                                  <p className="text-xs font-mono text-slate-400">{entry.ipAddress ?? '—'}</p>
+                                </td>
+                                <td className="px-4 py-3 hidden md:table-cell">
+                                  <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[0.65rem] font-black ${isMobile ? 'bg-violet-50 text-violet-600' : 'bg-slate-100 text-slate-500'}`}>
+                                    {isMobile ? '📱' : '💻'} {browser}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
         </main>
       </div>
 
@@ -1261,6 +1425,7 @@ export default function AdminPage() {
           { view: 'dashboard' as const, icon: <FiLayout className="w-5 h-5" />, label: 'Dashboard' },
           { view: 'institutes' as const, icon: <FiMapPin className="w-5 h-5" />, label: 'Institutes' },
           { view: 'users' as const, icon: <FiUsers className="w-5 h-5" />, label: 'Users' },
+          { view: 'logs' as const, icon: <FiActivity className="w-5 h-5" />, label: 'Logs' },
         ] as const).map(({ view, icon, label }) => (
           <button
             key={view}
@@ -1553,6 +1718,36 @@ export default function AdminPage() {
         }`}>
           <span className="shrink-0">{message.type === 'success' ? '✅' : '⚠️'}</span>
           <span className="truncate">{message.text}</span>
+        </div>
+      )}
+
+      {/* Inactivity warning */}
+      {warningVisible && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 text-center space-y-4">
+            <div className="w-14 h-14 rounded-full bg-amber-100 flex items-center justify-center mx-auto text-2xl">⏱️</div>
+            <div>
+              <h2 className="text-lg font-black text-slate-900">Session Expiring</h2>
+              <p className="text-sm text-slate-500 font-medium mt-1">
+                You will be logged out due to inactivity in{' '}
+                <span className="font-black text-amber-600">{secondsLeft}s</span>.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={stayLoggedIn}
+                className="flex-1 bg-slate-900 text-white font-black py-2.5 rounded-lg hover:bg-green-700 transition text-sm"
+              >
+                Stay Logged In
+              </button>
+              <button
+                onClick={logout}
+                className="flex-1 border border-slate-200 text-slate-600 font-black py-2.5 rounded-lg hover:bg-slate-50 transition text-sm"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

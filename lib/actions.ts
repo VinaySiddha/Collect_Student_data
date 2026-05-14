@@ -1,8 +1,20 @@
 'use server';
 
 import { dbExecute } from './db';
-import { User, StudentRecord, UserRole, DbUser } from './types';
+import { User, StudentRecord, UserRole, DbUser, AuditLog, LoginHistory } from './types';
 import { RowDataPacket } from 'mysql2';
+import { headers } from 'next/headers';
+
+async function getRequestMeta() {
+  try {
+    const h = await headers();
+    const ip = h.get('x-forwarded-for')?.split(',')[0]?.trim() ?? h.get('x-real-ip') ?? 'unknown';
+    const ua = h.get('user-agent') ?? 'unknown';
+    return { ip, ua };
+  } catch {
+    return { ip: 'unknown', ua: 'unknown' };
+  }
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -76,6 +88,13 @@ export async function loginUser(email: string, passwordHash: string) {
       [emailClean.toLowerCase(), passwordHash]
     );
     if (rows.length === 0) return { success: false, message: 'Invalid email or password.' };
+    const u = rows[0] as RowDataPacket;
+    // Record login history (non-blocking)
+    const { ip, ua } = await getRequestMeta();
+    dbExecute(
+      'INSERT IGNORE INTO login_history (user_email, user_name, ip_address, user_agent) VALUES (?, ?, ?, ?)',
+      [emailClean.toLowerCase(), u.name ?? email, ip, ua]
+    ).catch(() => {});
     return { success: true, message: 'Login successful.', user: rows[0] as User };
   } catch {
     return { success: false, message: 'Database connection failed.' };
@@ -546,6 +565,127 @@ export async function migrateRoleEnum() {
   } catch {
     // Already up to date
   }
+}
+
+// ── Audit logs ─────────────────────────────────────────────────────────────────
+
+export async function ensureAuditLogsTable() {
+  try {
+    await dbExecute(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_email VARCHAR(255) NOT NULL,
+        user_name  VARCHAR(255) NOT NULL DEFAULT '',
+        action     VARCHAR(100) NOT NULL,
+        entity_type VARCHAR(100),
+        entity_id  VARCHAR(255),
+        details    TEXT,
+        ip_address VARCHAR(100),
+        user_agent TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  } catch { /* already exists */ }
+}
+
+export async function addAuditLog(data: {
+  userEmail: string;
+  userName: string;
+  action: string;
+  entityType?: string;
+  entityId?: string;
+  details?: string;
+}): Promise<void> {
+  const { ip, ua } = await getRequestMeta();
+  try {
+    await dbExecute(
+      `INSERT INTO audit_logs (user_email, user_name, action, entity_type, entity_id, details, ip_address, user_agent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [data.userEmail, data.userName, data.action,
+       data.entityType ?? null, data.entityId ?? null, data.details ?? null, ip, ua]
+    );
+  } catch { /* non-critical */ }
+}
+
+export async function getAuditLogs(): Promise<AuditLog[]> {
+  try {
+    const [rows] = await dbExecute<RowDataPacket[]>(
+      `SELECT id, user_email AS userEmail, user_name AS userName, action,
+              entity_type AS entityType, entity_id AS entityId, details,
+              ip_address AS ipAddress, user_agent AS userAgent,
+              created_at AS createdAt
+       FROM audit_logs ORDER BY created_at DESC LIMIT 500`
+    );
+    return rows as AuditLog[];
+  } catch { return []; }
+}
+
+export async function getAuditLogsByCollege(college: string): Promise<AuditLog[]> {
+  try {
+    const [rows] = await dbExecute<RowDataPacket[]>(
+      `SELECT al.id, al.user_email AS userEmail, al.user_name AS userName, al.action,
+              al.entity_type AS entityType, al.entity_id AS entityId, al.details,
+              al.ip_address AS ipAddress, al.user_agent AS userAgent,
+              al.created_at AS createdAt
+       FROM audit_logs al
+       WHERE al.user_email IN (
+         SELECT u.email FROM users u
+         LEFT JOIN colleges c ON c.id = u.college_id
+         WHERE c.name = ?
+       )
+       ORDER BY al.created_at DESC LIMIT 300`,
+      [college]
+    );
+    return rows as AuditLog[];
+  } catch { return []; }
+}
+
+// ── Login history ──────────────────────────────────────────────────────────────
+
+export async function ensureLoginHistoryTable() {
+  try {
+    await dbExecute(`
+      CREATE TABLE IF NOT EXISTS login_history (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_email VARCHAR(255) NOT NULL,
+        user_name  VARCHAR(255) NOT NULL DEFAULT '',
+        ip_address VARCHAR(100),
+        user_agent TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  } catch { /* already exists */ }
+}
+
+export async function getLoginHistory(): Promise<LoginHistory[]> {
+  try {
+    const [rows] = await dbExecute<RowDataPacket[]>(
+      `SELECT id, user_email AS userEmail, user_name AS userName,
+              ip_address AS ipAddress, user_agent AS userAgent,
+              created_at AS createdAt
+       FROM login_history ORDER BY created_at DESC LIMIT 500`
+    );
+    return rows as LoginHistory[];
+  } catch { return []; }
+}
+
+export async function getLoginHistoryByCollege(college: string): Promise<LoginHistory[]> {
+  try {
+    const [rows] = await dbExecute<RowDataPacket[]>(
+      `SELECT lh.id, lh.user_email AS userEmail, lh.user_name AS userName,
+              lh.ip_address AS ipAddress, lh.user_agent AS userAgent,
+              lh.created_at AS createdAt
+       FROM login_history lh
+       WHERE lh.user_email IN (
+         SELECT u.email FROM users u
+         LEFT JOIN colleges c ON c.id = u.college_id
+         WHERE c.name = ?
+       )
+       ORDER BY lh.created_at DESC LIMIT 300`,
+      [college]
+    );
+    return rows as LoginHistory[];
+  } catch { return []; }
 }
 
 export async function migrateBase64PhotosToBlob(): Promise<{ success: boolean; migrated: number; message: string }> {

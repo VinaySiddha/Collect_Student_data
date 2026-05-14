@@ -1,5 +1,27 @@
 export type UserRole = 'faculty' | 'admin' | 'faculty_admin';
 
+export interface AuditLog {
+  id: number;
+  userEmail: string;
+  userName: string;
+  action: string;
+  entityType?: string;
+  entityId?: string;
+  details?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  createdAt: string;
+}
+
+export interface LoginHistory {
+  id: number;
+  userEmail: string;
+  userName: string;
+  ipAddress?: string;
+  userAgent?: string;
+  createdAt: string;
+}
+
 export interface User {
   name: string;
   email: string;
