@@ -16,6 +16,8 @@ import {
   getAuditLogs, getLoginHistory,
 } from '@/lib/actions';
 import { hashPasswordClient } from '@/lib/clientHash';
+import TableSkeleton from '@/components/TableSkeleton';
+import { formatISTDate, formatISTDateTime } from '@/lib/formatDate';
 import { AuditLog, DbUser, LoginHistory, StudentRecord } from '@/lib/types';
 import { useInactivityLogout } from '@/hooks/useInactivityLogout';
 
@@ -339,7 +341,7 @@ export default function AdminPage() {
       'Bus Stop':    s.busStop      || '',
       'Blood Group': s.bloodGroup   || '',
       'Added By':    s.createdBy    || 'Unknown',
-      'Created At':  new Date(s.createdAt).toLocaleDateString(),
+      'Created At':  formatISTDate(s.createdAt),
     })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Students');
@@ -383,7 +385,7 @@ export default function AdminPage() {
       'Bus Stop':    s.busStop      || '',
       'Blood Group': s.bloodGroup   || '',
       'Added By':    s.createdBy    || 'Unknown',
-      'Created At':  new Date(s.createdAt).toLocaleDateString(),
+      'Created At':  formatISTDate(s.createdAt),
     })));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Students');
@@ -1055,9 +1057,7 @@ export default function AdminPage() {
                   </div>
                 </div>
 
-                {usersLoading ? (
-                  <div className="px-6 py-16 text-center text-sm text-slate-400 font-bold">Loading users…</div>
-                ) : (
+                {usersLoading ? <TableSkeleton rows={5} cols={5} /> : (
                   <>
                     <div className="overflow-x-auto">
                       <table className="min-w-full text-sm border-separate border-spacing-0">
@@ -1105,7 +1105,7 @@ export default function AdminPage() {
                                 <p className="text-slate-500 font-medium text-sm">{u.college ?? '—'}</p>
                               </td>
                               <td className="px-4 lg:px-6 py-4 hidden lg:table-cell">
-                                <p className="text-slate-400 font-medium text-xs">{new Date(u.created_at).toLocaleDateString()}</p>
+                                <p className="text-slate-400 font-medium text-xs">{formatISTDate(u.created_at)}</p>
                               </td>
                               <td className="px-4 lg:px-6 py-4 text-right">
                                 {u.role !== 'admin' && (
@@ -1311,7 +1311,9 @@ export default function AdminPage() {
               </div>
 
               {logsLoading ? (
-                <div className="py-16 text-center text-sm text-slate-400 font-bold">Loading logs…</div>
+                <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+                  <TableSkeleton rows={8} cols={4} />
+                </div>
               ) : logsTab === 'audit' ? (
                 <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
                   {auditLogs.length === 0 ? (
@@ -1332,8 +1334,8 @@ export default function AdminPage() {
                           {auditLogs.map(log => (
                             <tr key={log.id} className="hover:bg-slate-50/60 transition">
                               <td className="px-4 py-3 whitespace-nowrap">
-                                <p className="text-xs font-bold text-slate-500">{new Date(log.createdAt).toLocaleDateString()}</p>
-                                <p className="text-[0.65rem] text-slate-400">{new Date(log.createdAt).toLocaleTimeString()}</p>
+                                <p className="text-xs font-bold text-slate-500">{formatISTDate(log.createdAt)}</p>
+                                <p className="text-[0.65rem] text-slate-400">{formatISTDateTime(log.createdAt)}</p>
                               </td>
                               <td className="px-4 py-3">
                                 <p className="font-bold text-slate-800 text-sm truncate max-w-[120px]">{log.userName || log.userEmail}</p>
@@ -1389,8 +1391,8 @@ export default function AdminPage() {
                             return (
                               <tr key={entry.id} className="hover:bg-slate-50/60 transition">
                                 <td className="px-4 py-3 whitespace-nowrap">
-                                  <p className="text-xs font-bold text-slate-500">{new Date(entry.createdAt).toLocaleDateString()}</p>
-                                  <p className="text-[0.65rem] text-slate-400">{new Date(entry.createdAt).toLocaleTimeString()}</p>
+                                  <p className="text-xs font-bold text-slate-500">{formatISTDate(entry.createdAt)}</p>
+                                  <p className="text-[0.65rem] text-slate-400">{formatISTDateTime(entry.createdAt)}</p>
                                 </td>
                                 <td className="px-4 py-3">
                                   <p className="font-bold text-slate-800 text-sm truncate max-w-[140px]">{entry.userName || entry.userEmail}</p>

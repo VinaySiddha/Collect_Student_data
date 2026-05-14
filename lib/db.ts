@@ -26,6 +26,7 @@ function createPool() {
     keepAliveInitialDelay: 10000,
     connectTimeout: 30000,
     ssl: getSslConfig(),
+    dateStrings: true,
   });
 }
 

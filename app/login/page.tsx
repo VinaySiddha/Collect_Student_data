@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
-import { FiLogIn } from 'react-icons/fi';
+import { FiLogIn, FiUser, FiLock } from 'react-icons/fi';
+
+const SCHOOLS = ["St. Xavier's", 'DPS', 'Ryan Intl.', 'Kendriya Vidyalaya', 'Holy Cross', 'Sunrise School'];
 
 export default function LoginPage() {
   const { login, user } = useAuth();
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -18,9 +20,7 @@ export default function LoginPage() {
   }
 
   useEffect(() => {
-    if (user) {
-      window.location.href = roleRedirect(user.role);
-    }
+    if (user) window.location.href = roleRedirect(user.role);
   }, [user]);
 
   const handleSubmit = async (event: React.SyntheticEvent<HTMLFormElement>) => {
@@ -28,7 +28,7 @@ export default function LoginPage() {
     setMessage(null);
     setLoading(true);
     try {
-      const result = await login(email, password);
+      const result = await login(username, password);
       if (result.success && result.role) {
         window.location.href = roleRedirect(result.role);
       } else {
@@ -42,163 +42,179 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row">
+    <div className="flex flex-col lg:flex-row bg-white" style={{ height: '100dvh', overflow: 'hidden' }}>
 
-      {/* ── Left panel (desktop only) ── */}
-      <div className="hidden lg:flex flex-col flex-1 bg-black p-12 justify-between relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded -mr-48 -mt-48 blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 left-0 w-80 h-80 bg-white/3 rounded -ml-40 -mb-40 blur-3xl pointer-events-none" />
+      {/* LEFT — brand / info panel */}
+      <div className="hidden lg:flex flex-col flex-1 h-full overflow-hidden bg-[#0a0a0a] px-12 py-10 xl:px-16 xl:py-12">
 
         {/* Brand */}
-        <div className="relative flex items-center gap-3">
-          <div className="w-10 h-10 bg-white rounded flex items-center justify-center shrink-0">
-            <span className="text-black font-black text-lg">G</span>
+        <div className="flex items-center gap-2.5 shrink-0 mb-auto">
+          <div className="w-7 h-7 bg-white rounded flex items-center justify-center shrink-0">
+            <span className="text-[#0a0a0a] font-black text-sm leading-none">G</span>
           </div>
-          <div>
-            <p className="text-white font-black text-lg leading-none">Gographic</p>
-            <p className="text-white/40 text-[0.6rem] font-bold uppercase tracking-widest mt-0.5">College Portal</p>
+          <span className="text-white font-bold text-base tracking-tight">Gographic</span>
+        </div>
+
+        {/* Center content */}
+        <div className="shrink-0 my-auto">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/30 mb-5">
+            School ID Card Management
+          </p>
+          <h2 className="text-4xl xl:text-5xl font-black text-white leading-[1.1] tracking-tight mb-5">
+            Complete School<br />
+            Identity &amp; Printing<br />
+            <span className="text-white/40">Solutions.</span>
+          </h2>
+          <p className="text-white/40 text-sm leading-relaxed max-w-xs mb-10">
+            Design, manage, and bulk-print student ID cards with school branding, barcodes, and photo integration.
+          </p>
+
+          {/* ID card mockup — no emojis, pure CSS */}
+          <div className="w-72 rounded-xl overflow-hidden border border-white/10 shadow-2xl">
+            {/* card header stripe */}
+            <div className="h-1.5 w-full bg-white/20" />
+            <div className="bg-white/5 px-5 py-4">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-5 h-5 bg-white/20 rounded flex items-center justify-center shrink-0">
+                  <span className="text-white text-[0.5rem] font-black">G</span>
+                </div>
+                <div>
+                  <p className="text-white text-[0.6rem] font-bold uppercase tracking-widest leading-none">Gographic School</p>
+                  <p className="text-white/30 text-[0.5rem] uppercase tracking-widest mt-0.5">Student Identity Card</p>
+                </div>
+              </div>
+
+              <div className="flex gap-4 items-start">
+                {/* photo box */}
+                <div className="w-14 h-16 rounded-lg bg-white/10 border border-white/10 shrink-0 flex items-center justify-center">
+                  <div className="w-6 h-6 rounded-full bg-white/20 mb-1" />
+                </div>
+                <div className="flex-1 pt-1 space-y-1.5">
+                  <div className="h-2.5 w-24 bg-white/70 rounded-sm" />
+                  <div className="h-2 w-16 bg-white/30 rounded-sm" />
+                  <div className="h-1.5 w-20 bg-white/20 rounded-sm mt-2" />
+                  <div className="h-1.5 w-14 bg-white/20 rounded-sm" />
+                </div>
+              </div>
+
+              {/* barcode */}
+              <div className="mt-4 flex items-end gap-2">
+                <div className="flex gap-px items-end">
+                  {[2,1,3,1,2,1,1,3,2,1,2,1,3,1,2,1,1,2,3,1,2,1,1,2].map((w, i) => (
+                    <div key={i} style={{ width: w, height: 16 + (i % 3) * 2, background: 'rgba(255,255,255,0.5)' }} />
+                  ))}
+                </div>
+                <p className="text-white/20 text-[0.45rem] font-mono">GEO-2024-042</p>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Hero */}
-        <div className="relative space-y-10">
-          <div className="space-y-4">
-            <p className="text-xs font-black uppercase tracking-[0.3em] text-white/50">Secure Access</p>
-            <h2 className="text-4xl font-black text-white leading-tight">
-              One portal for<br />
-              <span className="text-white/60">faculty &amp; admin</span><br />
-              to manage data.
-            </h2>
-            <p className="text-white/40 font-medium text-base max-w-sm">
-              Register students, upload bulk data, and generate ID cards — all from one dashboard.
-            </p>
-          </div>
 
-          <div className="space-y-4">
-            {[
-              { icon: '🎓', label: 'Student registration & management' },
-              { icon: '📋', label: 'Bulk import via Excel' },
-              { icon: '🪪', label: 'ID card generation & export' },
-              { icon: '📊', label: 'Download reports as PDF' },
-            ].map(({ icon, label }) => (
-              <div key={label} className="flex items-center gap-3">
-                <span className="text-xl">{icon}</span>
-                <span className="text-white/50 font-medium text-sm">{label}</span>
-              </div>
+
+        {/* Footer — trusted by */}
+        <div className="shrink-0 mt-auto">
+          <p className="text-white/20 text-[0.6rem] font-semibold uppercase tracking-widest mb-3">
+            Trusted by schools across India
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {SCHOOLS.map(name => (
+              <span key={name} className="text-[0.6rem] font-medium text-white/30 border border-white/10 px-2.5 py-1 rounded-md">
+                {name}
+              </span>
             ))}
           </div>
+          <p className="text-white/15 text-[0.6rem] font-medium mt-6">
+            © {new Date().getFullYear()} Gographic. All rights reserved.
+          </p>
         </div>
-
-        <p className="relative text-white/20 text-xs font-medium">
-          © {new Date().getFullYear()} Gographic. All rights reserved.
-        </p>
       </div>
 
-      {/* ── Right panel ── */}
-      <div className="flex-1 lg:flex-none lg:w-[480px] flex flex-col bg-white overflow-y-auto">
+      {/* RIGHT — login form */}
+      <div className="flex-1 lg:flex-none lg:w-[420px] flex flex-col h-full overflow-y-auto lg:overflow-hidden border-l border-slate-100">
 
-        {/* Mobile hero header (replaces the tiny logo on mobile) */}
-        <div className="lg:hidden bg-black relative overflow-hidden px-6 pt-10 pb-8 shrink-0">
-          <div className="absolute top-0 right-0 w-72 h-72 bg-white/5 rounded -mr-36 -mt-36 blur-3xl pointer-events-none" />
-          <div className="absolute bottom-0 left-0 w-56 h-56 bg-white/3 rounded -ml-28 -mb-28 blur-3xl pointer-events-none" />
-
-          {/* Brand */}
-          <div className="relative flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 bg-white rounded flex items-center justify-center shrink-0">
-              <span className="text-black font-black text-lg">G</span>
-            </div>
-            <div>
-              <p className="text-white font-black text-lg leading-none">Gographic</p>
-              <p className="text-white/40 text-[0.6rem] font-bold uppercase tracking-widest mt-0.5">College Portal</p>
-            </div>
+        {/* Mobile top bar */}
+        <div className="lg:hidden flex items-center gap-2.5 px-6 pt-8 pb-6 shrink-0 border-b border-slate-100">
+          <div className="w-7 h-7 bg-[#0a0a0a] rounded flex items-center justify-center shrink-0">
+            <span className="text-white font-black text-sm leading-none">G</span>
           </div>
-
-          {/* Hero */}
-          <div className="relative">
-            <p className="text-[0.6rem] font-black uppercase tracking-[0.3em] text-white/40 mb-2">Secure Access</p>
-            <h2 className="text-2xl font-black text-white leading-tight mb-2">
-              One portal for<br />
-              <span className="text-white/50">faculty &amp; admin.</span>
-            </h2>
-            <p className="text-white/40 text-sm font-medium mb-5">
-              Register students, upload bulk data, and generate ID cards.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { icon: '🎓', label: 'Student Registration' },
-                { icon: '📋', label: 'Bulk Import' },
-                { icon: '🪪', label: 'ID Cards' },
-                { icon: '📊', label: 'PDF Reports' },
-              ].map(({ icon, label }) => (
-                <span key={label} className="flex items-center gap-1.5 text-[0.65rem] font-bold text-white/50 bg-white/5 border border-white/10 px-2.5 py-1 rounded">
-                  <span>{icon}</span>{label}
-                </span>
-              ))}
-            </div>
-          </div>
+          <span className="text-slate-900 font-bold text-base tracking-tight">Gographic</span>
         </div>
 
-        {/* Form section */}
-        <div className="flex-1 flex items-center justify-center px-6 py-8 lg:px-8 lg:py-12">
-          <div className="w-full max-w-sm space-y-8">
+        {/* Form centered */}
+        <div className="flex-1 flex items-center justify-center px-8 py-10 lg:px-12">
+          <div className="w-full max-w-xs">
 
-            <div className="space-y-2">
-              <h1 className="text-2xl font-black text-slate-900">Login</h1>
-              <p className="text-slate-500 text-sm font-medium">Enter your credentials to access your portal.</p>
+            <div className="mb-8">
+              <p className="text-[0.6rem] font-semibold uppercase tracking-[0.2em] text-slate-400 mb-3">
+                School Portal
+              </p>
+              <h1 className="text-2xl font-black text-slate-900 tracking-tight mb-1.5">Sign in</h1>
+              <p className="text-slate-400 text-sm">
+                Enter your credentials to access the portal.
+              </p>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <label className="block">
-                <span className="mb-2 block text-xs font-black uppercase tracking-widest text-slate-400">Email</span>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Enter your email"
-                  required
-                  className="input-field"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-2 block text-xs font-black uppercase tracking-widest text-slate-400">Password</span>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your password"
-                  required
-                  className="input-field"
-                />
-              </label>
+            <form onSubmit={handleSubmit} className="space-y-4">
+
+              <div>
+                <label className="block text-[0.65rem] font-bold uppercase tracking-widest text-slate-400 mb-1.5">
+                  User Name
+                </label>
+                <div className="relative">
+                  <FiUser className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-300" />
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="Enter your username"
+                    required
+                    className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-slate-200 text-slate-900 text-sm placeholder-slate-300 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100 bg-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[0.65rem] font-bold uppercase tracking-widest text-slate-400 mb-1.5">
+                  Password
+                </label>
+                <div className="relative">
+                  <FiLock className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-300" />
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter your password"
+                    required
+                    className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-slate-200 text-slate-900 text-sm placeholder-slate-300 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100 bg-white"
+                  />
+                </div>
+              </div>
 
               {message && (
-                <p className="text-sm font-bold text-rose-600 bg-rose-50 p-3 rounded border border-rose-100">
-                  ⚠️ {message}
+                <p className="text-xs font-semibold text-rose-600 bg-rose-50 px-3 py-2.5 rounded-lg border border-rose-100">
+                  {message}
                 </p>
               )}
 
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full flex items-center justify-center gap-2 rounded bg-slate-900 px-6 py-3.5 text-sm font-bold text-white transition hover:bg-black hover:shadow-lg active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
+                className="w-full flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-bold text-white bg-[#0a0a0a] hover:bg-black transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed mt-1"
               >
-                {loading ? (
-                  <span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                ) : (
-                  <FiLogIn className="w-4 h-4" />
-                )}
-                {loading ? 'Logging in…' : 'Login'}
+                {loading
+                  ? <span className="w-3.5 h-3.5 rounded-full border-2 border-white/20 border-t-white animate-spin" />
+                  : <FiLogIn className="w-3.5 h-3.5" />}
+                {loading ? 'Signing in…' : 'Sign In'}
               </button>
             </form>
 
+            <p className="text-[0.6rem] text-slate-300 font-medium mt-8">
+              © {new Date().getFullYear()} Gographic · School Identity &amp; Printing Solutions
+            </p>
+
           </div>
         </div>
-
-        {/* Mobile footer */}
-        <p className="lg:hidden text-center text-xs text-slate-400 font-medium pb-6">
-          © {new Date().getFullYear()} Gographic. All rights reserved.
-        </p>
-
       </div>
     </div>
   );

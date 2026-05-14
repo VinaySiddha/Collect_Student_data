@@ -17,18 +17,26 @@ import {
   getDeletedUsersByCollege,
   restoreUserInDb,
   addAuditLog,
+  saveDraftToDb,
+  getDraftsByUser,
+  deleteDraftFromDb,
 } from '@/lib/actions';
 import { useInactivityLogout } from '@/hooks/useInactivityLogout';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import { DbUser, StudentRecord } from '@/lib/types';
+import { DbUser, StudentRecord, DraftRecord } from '@/lib/types';
 import {
   FiLayout, FiUsers, FiLogOut, FiPlus, FiTrash2, FiUser, FiMail,
-  FiLock, FiMenu, FiX, FiDownload, FiChevronDown, FiMapPin, FiShield,
+  FiLock, FiMenu, FiX, FiDownload, FiChevronDown, FiShield,
   FiUserPlus, FiUpload, FiRotateCcw, FiCamera, FiArchive, FiRefreshCw,
+  FiSave, FiCrop, FiInbox,
 } from 'react-icons/fi';
+import CropModal from '@/components/CropModal';
 import { hashPasswordClient } from '@/lib/clientHash';
 import { GoSidebarExpand, GoSidebarCollapse } from 'react-icons/go';
+import { MdFlipCameraAndroid } from 'react-icons/md';
+import { formatISTDate, formatISTDateTime } from '@/lib/formatDate';
+import TableSkeleton from '@/components/TableSkeleton';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
 type View = 'dashboard' | 'faculty' | 'register';
@@ -47,6 +55,22 @@ export default function FacultyAdminPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [confirmStudent, setConfirmStudent] = useState<StudentRecord | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [navGuard, setNavGuard]       = useState<View | null>(null);
+  const [draftDeleteId, setDraftDeleteId] = useState<string | null>(null);
+
+  const hasUnsavedRegister = () =>
+    activeView === 'register' && (
+      form.name.trim() !== '' || form.phone.trim() !== '' ||
+      form.parentage.trim() !== '' || !!photoPreview
+    );
+
+  const navigateTo = (view: View) => {
+    if (view !== 'register' && hasUnsavedRegister()) {
+      setNavGuard(view);
+    } else {
+      setActiveView(view);
+    }
+  };
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
   const [excelFile, setExcelFile] = useState<File | null>(null);
@@ -71,6 +95,17 @@ export default function FacultyAdminPage() {
   const videoRef  = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  const facingModeRef = useRef<'user' | 'environment'>('user');
+
+  // Crop
+  const [cropSource, setCropSource] = useState<string | null>(null);
+
+  // Draft
+  const [dbDrafts, setDbDrafts] = useState<DraftRecord[]>([]);
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
+  const [showDrafts, setShowDrafts] = useState(false);
+  const [draftSaving, setDraftSaving] = useState(false);
 
   // Bulk import photos
   const [bulkPhotoMap, setBulkPhotoMap] = useState<Map<string, string>>(new Map());
@@ -89,6 +124,9 @@ export default function FacultyAdminPage() {
     if (!initialized) return;
     if (!user) { router.push('/login'); return; }
     if (user.role !== 'faculty_admin') { router.push('/faculty'); return; }
+    // Load DB drafts
+    const userKey = user.email || user.name || '';
+    if (userKey) getDraftsByUser(userKey).then(setDbDrafts);
   }, [user, initialized, router]);
 
   // ── Inactivity logout (15 min) ────────────────────────────────────────────────
@@ -213,7 +251,7 @@ export default function FacultyAdminPage() {
       'Bus Stop':    s.busStop      || '',
       'Blood Group': s.bloodGroup   || '',
       'Added By':    s.createdBy    || 'Unknown',
-      'Created At':  new Date(s.createdAt).toLocaleDateString(),
+      'Created At':  formatISTDate(s.createdAt),
     })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Students');
@@ -250,7 +288,7 @@ export default function FacultyAdminPage() {
       'Bus Stop':    s.busStop      || '',
       'Blood Group': s.bloodGroup   || '',
       'Added By':    s.createdBy    || 'Unknown',
-      'Created At':  new Date(s.createdAt).toLocaleDateString(),
+      'Created At':  formatISTDate(s.createdAt),
     })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Students');
@@ -304,32 +342,33 @@ export default function FacultyAdminPage() {
   const handlePhotoFile = (file: File | null) => {
     if (!file) { setPhotoPreview(null); return; }
     const reader = new FileReader();
-    reader.onload = e => processImage(e.target?.result as string);
+    reader.onload = e => setCropSource(e.target?.result as string);
     reader.readAsDataURL(file);
   };
 
-  const startCamera = async () => {
+  const startCamera = async (mode: 'user' | 'environment' = facingModeRef.current) => {
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } } });
+      if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+      const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: mode, width: { ideal: 640 }, height: { ideal: 640 } } });
       streamRef.current = s;
+      facingModeRef.current = mode;
+      setFacingMode(mode);
       setCameraOpen(true);
     } catch {
       setNotice({ message: 'Camera access denied or unavailable.', type: 'error' });
     }
   };
 
+  const flipCamera = () => startCamera(facingModeRef.current === 'user' ? 'environment' : 'user');
+
   const captureFromCamera = () => {
     const video = videoRef.current;
     if (!video) return;
     const canvas = document.createElement('canvas');
-    canvas.width = 400; canvas.height = 400;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const vw = video.videoWidth; const vh = video.videoHeight;
-    const size = Math.min(vw, vh);
-    ctx.drawImage(video, (vw - size) / 2, (vh - size) / 2, size, size, 0, 0, 400, 400);
-    setPhotoPreview(canvas.toDataURL('image/png'));
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    canvas.getContext('2d')?.drawImage(video, 0, 0);
     stopCamera();
+    setCropSource(canvas.toDataURL('image/png'));
   };
 
   const stopCamera = () => {
@@ -363,6 +402,67 @@ export default function FacultyAdminPage() {
         img.src = src;
       };
       reader.readAsDataURL(file);
+    });
+  };
+
+  const saveToDb = async () => {
+    const userKey = user?.email || user?.name || '';
+    if (!userKey) return;
+    setDraftSaving(true);
+    const id = activeDraftId ?? `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const draft: DraftRecord = {
+      id, college: user?.college ?? '',
+      name: form.name, phone: form.phone,
+      parentage: form.parentage || undefined,
+      studentId: form.studentId || undefined,
+      rollNo: form.rollNo || undefined,
+      studentClass: form.studentClass || undefined,
+      course: form.course || undefined,
+      year: form.year || undefined,
+      email: form.email || undefined,
+      busStop: form.busStop || undefined,
+      bloodGroup: form.bloodGroup || undefined,
+      photo: photoPreview || undefined,
+      savedBy: userKey,
+      updatedAt: new Date().toISOString(),
+    };
+    const result = await saveDraftToDb(draft);
+    if (result.success) {
+      setActiveDraftId(id);
+      setDbDrafts(prev => [{ ...draft }, ...prev.filter(d => d.id !== id)]);
+      showToast('Draft saved.', 'success');
+    } else {
+      showToast('Failed to save draft.', 'error');
+    }
+    setDraftSaving(false);
+  };
+
+  const loadDbDraft = (draft: DraftRecord) => {
+    setForm({
+      name: draft.name ?? '', parentage: draft.parentage ?? '',
+      studentId: draft.studentId ?? '', rollNo: draft.rollNo ?? '',
+      studentClass: draft.studentClass ?? '', course: draft.course ?? '',
+      year: draft.year ?? '', email: draft.email ?? '',
+      phone: draft.phone ?? '', busStop: draft.busStop ?? '',
+      bloodGroup: draft.bloodGroup ?? '',
+    });
+    setPhotoPreview(draft.photo ?? null);
+    setActiveDraftId(draft.id);
+    setShowDrafts(false);
+    showToast('Draft loaded.', 'success');
+  };
+
+  const deleteDbDraft = async (id: string) => {
+    await deleteDraftFromDb(id);
+    setDbDrafts(prev => prev.filter(d => d.id !== id));
+    if (activeDraftId === id) setActiveDraftId(null);
+  };
+
+  const clearDraft = (draftId?: string | null) => {
+    const id = draftId ?? activeDraftId;
+    if (id) deleteDraftFromDb(id).then(() => {
+      setDbDrafts(prev => prev.filter(d => d.id !== id));
+      setActiveDraftId(null);
     });
   };
 
@@ -408,6 +508,7 @@ export default function FacultyAdminPage() {
         setForm(EMPTY_FORM);
         setPhotoPreview(null);
         setUploadFile(null);
+        clearDraft(activeDraftId);
         showToast('Student registered successfully.', 'success');
         addAuditLog({
           userEmail: user?.email ?? '', userName: user?.name ?? '',
@@ -586,7 +687,7 @@ export default function FacultyAdminPage() {
           ].map(({ view, icon, label }) => (
             <button
               key={view}
-              onClick={() => { setActiveView(view); setMobileOpen(false); }}
+              onClick={() => { navigateTo(view); setMobileOpen(false); }}
               title={collapsed ? label : undefined}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded text-sm font-bold transition-all ${collapsed ? 'lg:justify-center lg:px-2' : ''} ${
                 activeView === view ? 'bg-white/10 text-white' : 'text-white/50 hover:bg-white/5 hover:text-white'
@@ -680,11 +781,7 @@ export default function FacultyAdminPage() {
               </div>
 
               <div className="bg-white rounded border border-slate-200 shadow-sm p-3 sm:p-4 lg:p-6">
-                {studentsLoading ? (
-                  <div className="py-16 text-center text-sm text-slate-400 font-bold">Loading students…</div>
-                ) : (
-                  <StudentTable students={students} onDelete={handleDeleteStudent} />
-                )}
+                <StudentTable students={students} loading={studentsLoading} onDelete={handleDeleteStudent} />
               </div>
 
               {/* Deleted Students */}
@@ -768,6 +865,56 @@ export default function FacultyAdminPage() {
                 </button>
               </div>
 
+              {/* ── Saved Drafts panel ── */}
+              {dbDrafts.length > 0 && (
+                <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+                  <button
+                    onClick={() => setShowDrafts(v => !v)}
+                    className="w-full flex items-center justify-between px-4 py-3.5 hover:bg-slate-50 transition text-left"
+                  >
+                    <span className="flex items-center gap-2 text-sm font-black text-slate-600">
+                      <FiInbox className="w-4 h-4 text-violet-500" />
+                      Saved Drafts
+                      <span className="px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 text-[0.65rem] font-black">{dbDrafts.length}</span>
+                    </span>
+                    <FiChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showDrafts ? 'rotate-180' : ''}`} />
+                  </button>
+                  {showDrafts && (
+                    <div className="border-t border-slate-100 divide-y divide-slate-100">
+                      {dbDrafts.map(draft => (
+                        <div key={draft.id} className="flex items-center gap-3 px-4 py-3">
+                          <div className="w-10 h-10 rounded border border-slate-200 bg-slate-100 overflow-hidden shrink-0 flex items-center justify-center">
+                            {draft.photo
+                              ? <img src={draft.photo} alt="" className="w-full h-full object-cover" />
+                              : <FiCamera className="w-4 h-4 text-slate-300" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-black text-slate-800 truncate">{draft.name || 'Unnamed'}</p>
+                            <p className="text-[0.65rem] text-slate-400 font-medium">
+                              {formatISTDateTime(draft.updatedAt)}
+                            </p>
+                          </div>
+                          <div className="flex gap-1.5 shrink-0">
+                            <button
+                              onClick={() => loadDbDraft(draft)}
+                              className="px-2.5 py-1.5 rounded text-xs font-black text-violet-600 bg-violet-50 hover:bg-violet-500 hover:text-white border border-violet-100 transition"
+                            >
+                              Load
+                            </button>
+                            <button
+                              onClick={() => setDraftDeleteId(draft.id)}
+                              className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                            >
+                              <FiTrash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* ── Manual form ── */}
               <div className="bg-white rounded border border-slate-200 shadow-sm p-4 lg:p-6">
 
@@ -776,7 +923,19 @@ export default function FacultyAdminPage() {
                       <FiUserPlus className="w-4 h-4" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h2 className="text-base font-black text-slate-900">Manual Registration</h2>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h2 className="text-base font-black text-slate-900">Manual Registration</h2>
+                        {activeDraftId && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[0.65rem] font-bold bg-violet-100 text-violet-700 border border-violet-200">
+                            <FiInbox className="w-3 h-3" /> Editing draft
+                          </span>
+                        )}
+                        {!activeDraftId && hasUnsavedRegister() && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[0.65rem] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                            <FiSave className="w-3 h-3" /> Unsaved data
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-slate-500 mt-0.5">Fields marked * are required</p>
                     </div>
                     {!studentsLoading && (
@@ -794,6 +953,52 @@ export default function FacultyAdminPage() {
                         <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Institution</span>
                         <input value={user.college ?? ''} readOnly className="input-field bg-slate-50 text-slate-500 cursor-not-allowed text-sm" />
                       </label>
+
+                      {/* Student Photograph — top of form */}
+                      <div className="sm:col-span-2">
+                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">
+                          Student Photograph <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span>
+                        </span>
+                        <div className="grid grid-cols-2 gap-2 mb-3">
+                          <div className="relative">
+                            <input type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0] ?? null; setUploadFile(f); handlePhotoFile(f); e.target.value = ''; }} className="opacity-0 absolute inset-0 w-full h-full z-10 cursor-pointer" />
+                            <button type="button" className="w-full flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-bold py-2.5 rounded hover:bg-violet-50 hover:border-violet-300 hover:text-violet-600 transition text-sm">
+                              <FiUpload className="w-4 h-4" /> Upload
+                            </button>
+                          </div>
+                          <button type="button" onClick={() => startCamera('user')} className="flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-bold py-2.5 rounded hover:bg-green-50 hover:border-green-300 hover:text-green-600 transition text-sm">
+                            <FiCamera className="w-4 h-4" /> Camera
+                          </button>
+                          <div className="relative sm:hidden col-span-2">
+                            <input type="file" accept="image/*" capture="environment" onChange={e => { const f = e.target.files?.[0] ?? null; setUploadFile(f); handlePhotoFile(f); e.target.value = ''; }} className="opacity-0 absolute inset-0 w-full h-full z-10 cursor-pointer" />
+                            <button type="button" className="w-full flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-bold py-2.5 rounded hover:bg-purple-50 hover:border-purple-300 hover:text-purple-600 transition text-sm">
+                              <FiCamera className="w-4 h-4" /> Take Photo (Phone Camera)
+                            </button>
+                          </div>
+                        </div>
+                        {photoPreview ? (
+                          <div className="flex items-center gap-3 p-3 rounded border border-slate-200 bg-slate-50">
+                            <img src={photoPreview} alt="Preview" className="w-14 h-14 object-cover rounded border border-slate-200 shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-slate-700">Photo ready</p>
+                              <p className="text-xs text-slate-400">Saved as 400×400 PNG</p>
+                            </div>
+                            <div className="flex gap-1.5 shrink-0">
+                              <button type="button" onClick={() => setCropSource(photoPreview)} title="Re-crop" className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-violet-600 hover:bg-violet-50 transition">
+                                <FiCrop className="w-4 h-4" />
+                              </button>
+                              <button type="button" onClick={() => { setPhotoPreview(null); setUploadFile(null); }} className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition">
+                                <FiX className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-3 p-3 rounded border border-dashed border-slate-200 bg-slate-50/50 text-slate-400">
+                            <FiCamera className="w-5 h-5 shrink-0" />
+                            <p className="text-xs font-medium">No photo selected</p>
+                          </div>
+                        )}
+                      </div>
 
                       <label className="block sm:col-span-2">
                         <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Student Name *</span>
@@ -850,38 +1055,6 @@ export default function FacultyAdminPage() {
                         <input value={form.busStop} onChange={e => setForm(f => ({ ...f, busStop: e.target.value }))} placeholder="e.g. Main Bus Stand" className="input-field text-sm" />
                       </label>
 
-                      {/* Student Photograph */}
-                      <div className="sm:col-span-2">
-                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Student Photograph <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span></span>
-                        <div className="flex gap-2 mb-3">
-                          <div className="relative flex-1">
-                            <input type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0] ?? null; setUploadFile(f); handlePhotoFile(f); }} className="opacity-0 absolute inset-0 w-full h-full z-10 cursor-pointer" />
-                            <button type="button" className="w-full flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-bold py-2.5 rounded hover:bg-violet-50 hover:border-violet-300 hover:text-violet-600 transition text-sm">
-                              <FiUpload className="w-4 h-4" /> Upload
-                            </button>
-                          </div>
-                          <button type="button" onClick={startCamera} className="flex-1 flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-bold py-2.5 rounded hover:bg-green-50 hover:border-green-300 hover:text-green-600 transition text-sm">
-                            <FiCamera className="w-4 h-4" /> Capture
-                          </button>
-                        </div>
-                        {photoPreview ? (
-                          <div className="flex items-center gap-3 p-3 rounded border border-slate-200 bg-slate-50">
-                            <img src={photoPreview} alt="Preview" className="w-14 h-14 object-cover rounded border border-slate-200 shrink-0" />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-bold text-slate-700">Photo ready</p>
-                              <p className="text-xs text-slate-400">Will be saved as PNG</p>
-                            </div>
-                            <button type="button" onClick={() => { setPhotoPreview(null); setUploadFile(null); }} className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition">
-                              <FiX className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-3 p-3 rounded border border-dashed border-slate-200 bg-slate-50/50 text-slate-400">
-                            <FiCamera className="w-5 h-5 shrink-0" />
-                            <p className="text-xs font-medium">No photo selected — Upload a file or use Capture</p>
-                          </div>
-                        )}
-                      </div>
                     </div>
 
                     {notice && (
@@ -890,9 +1063,15 @@ export default function FacultyAdminPage() {
                       </p>
                     )}
 
-                    <button type="submit" className="w-full bg-violet-500 text-white font-black py-3.5 rounded hover:bg-violet-600 transition shadow-sm active:scale-95 text-sm flex items-center justify-center gap-2">
-                      <FiUserPlus className="w-4 h-4" /> Review &amp; Register
-                    </button>
+                    <div className="flex flex-col sm:flex-row gap-3 pt-1">
+                      <button type="submit" className="flex-1 bg-violet-500 text-white font-black py-3.5 rounded hover:bg-violet-600 transition shadow-sm active:scale-95 text-sm flex items-center justify-center gap-2">
+                        <FiUserPlus className="w-4 h-4" /> Review &amp; Register
+                      </button>
+                      <button type="button" onClick={saveToDb} disabled={draftSaving} className="flex items-center justify-center gap-2 px-5 py-3.5 border border-slate-200 bg-white text-slate-600 font-black text-sm rounded hover:bg-slate-50 transition active:scale-95 disabled:opacity-60">
+                        {draftSaving ? <span className="w-3.5 h-3.5 rounded-full border-2 border-slate-300 border-t-slate-600 animate-spin" /> : <FiSave className="w-4 h-4" />}
+                        Save Draft
+                      </button>
+                    </div>
                   </form>
                 </div>
 
@@ -981,9 +1160,7 @@ export default function FacultyAdminPage() {
                   <span className="text-xs text-slate-400 font-bold">{facultyUsers.length} total</span>
                 </div>
 
-                {facultyLoading ? (
-                  <div className="px-6 py-16 text-center text-sm text-slate-400 font-bold">Loading faculty…</div>
-                ) : facultyUsers.length === 0 ? (
+                {facultyLoading ? <TableSkeleton rows={4} cols={4} /> : facultyUsers.length === 0 ? (
                   <div className="px-6 py-16 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <div className="w-12 h-12 bg-slate-50 rounded flex items-center justify-center text-xl">👩‍🏫</div>
@@ -1022,7 +1199,7 @@ export default function FacultyAdminPage() {
                               <p className="text-slate-600 font-medium text-sm truncate max-w-[200px]">{u.email}</p>
                             </td>
                             <td className="px-4 lg:px-6 py-4 hidden lg:table-cell">
-                              <p className="text-slate-400 font-medium text-xs">{new Date(u.created_at).toLocaleDateString()}</p>
+                              <p className="text-slate-400 font-medium text-xs">{formatISTDate(u.created_at)}</p>
                             </td>
                             <td className="px-4 lg:px-6 py-4 text-right">
                               <button
@@ -1304,12 +1481,17 @@ export default function FacultyAdminPage() {
       {/* Camera modal */}
       {cameraOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm sm:max-w-md lg:max-w-lg overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
               <h3 className="font-black text-slate-900 text-sm">Capture Photo</h3>
-              <button onClick={stopCamera} className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition">
-                <FiX className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button onClick={flipCamera} title="Flip camera" className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-violet-600 hover:bg-violet-50 transition">
+                  <MdFlipCameraAndroid className="w-4 h-4" />
+                </button>
+                <button onClick={stopCamera} className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition">
+                  <FiX className="w-4 h-4" />
+                </button>
+              </div>
             </div>
             <video ref={videoRef} autoPlay playsInline muted className="w-full aspect-square object-cover bg-black" />
             <div className="p-4">
@@ -1321,6 +1503,73 @@ export default function FacultyAdminPage() {
         </div>
       )}
 
+      {/* ── Unsaved data nav guard ── */}
+      {navGuard && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100">
+              <h3 className="font-black text-slate-900 text-base">Unsaved Data</h3>
+              <p className="text-xs text-slate-500 mt-1">You have unsaved information in the registration form. What would you like to do?</p>
+            </div>
+            <div className="p-4 flex flex-col gap-2">
+              <button
+                onClick={async () => { await saveToDb(); setForm(EMPTY_FORM); setPhotoPreview(null); setActiveDraftId(null); setActiveView(navGuard); setNavGuard(null); }}
+                className="w-full flex items-center justify-center gap-2 bg-violet-500 text-white font-black py-3 rounded-lg hover:bg-violet-600 transition text-sm active:scale-95"
+              >
+                <FiSave className="w-4 h-4" /> Save as Draft &amp; Leave
+              </button>
+              <button
+                onClick={() => setNavGuard(null)}
+                className="w-full flex items-center justify-center gap-2 bg-slate-100 text-slate-700 font-black py-3 rounded-lg hover:bg-slate-200 transition text-sm active:scale-95"
+              >
+                <FiUserPlus className="w-4 h-4" /> Stay &amp; Complete
+              </button>
+              <button
+                onClick={() => { setForm(EMPTY_FORM); setPhotoPreview(null); clearDraft(); setActiveView(navGuard); setNavGuard(null); }}
+                className="w-full text-rose-500 font-bold py-2 text-sm hover:text-rose-700 transition"
+              >
+                Discard &amp; Leave
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Draft delete confirmation */}
+      {draftDeleteId && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100">
+              <h3 className="font-black text-slate-900 text-base">Delete Draft?</h3>
+              <p className="text-xs text-slate-500 mt-1">This draft will be permanently deleted and cannot be recovered.</p>
+            </div>
+            <div className="p-4 flex gap-2">
+              <button
+                onClick={async () => { await deleteDbDraft(draftDeleteId); setDraftDeleteId(null); }}
+                className="flex-1 bg-rose-500 text-white font-black py-2.5 rounded-lg hover:bg-rose-600 transition text-sm active:scale-95"
+              >
+                Delete
+              </button>
+              <button
+                onClick={() => setDraftDeleteId(null)}
+                className="flex-1 border border-slate-200 text-slate-600 font-black py-2.5 rounded-lg hover:bg-slate-50 transition text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Crop modal */}
+      {cropSource && (
+        <CropModal
+          src={cropSource}
+          onConfirm={cropped => { setPhotoPreview(cropped); setCropSource(null); }}
+          onCancel={() => setCropSource(null)}
+        />
+      )}
+
       {/* Mobile bottom tab bar */}
       <nav className="fixed bottom-0 inset-x-0 z-40 lg:hidden bg-slate-900 border-t border-white/10 flex">
         {([
@@ -1330,7 +1579,7 @@ export default function FacultyAdminPage() {
         ] as const).map(({ view, icon, label }) => (
           <button
             key={view}
-            onClick={() => setActiveView(view)}
+            onClick={() => navigateTo(view)}
             className={`flex-1 flex flex-col items-center gap-1 pt-3 pb-4 text-[0.55rem] font-black uppercase tracking-widest transition-colors ${
               activeView === view ? 'text-white' : 'text-white/35 hover:text-white/70'
             }`}

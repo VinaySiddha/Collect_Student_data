@@ -40,6 +40,25 @@ export interface DbUser {
   deletedBy?: string | null;
 }
 
+export interface DraftRecord {
+  id: string;
+  college: string;
+  name: string;
+  phone: string;
+  studentId?: string;
+  course?: string;
+  year?: string;
+  email?: string;
+  parentage?: string;
+  rollNo?: string;
+  studentClass?: string;
+  busStop?: string;
+  bloodGroup?: string;
+  photo?: string;
+  savedBy: string;
+  updatedAt: string;
+}
+
 export interface StudentRecord {
   id: string;
   college: string;

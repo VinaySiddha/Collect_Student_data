@@ -5,9 +5,12 @@ import { StudentRecord } from '@/lib/types';
 import { FiSearch, FiChevronLeft, FiChevronRight, FiTrash2, FiMapPin, FiXCircle, FiEdit2 } from 'react-icons/fi';
 import StudentDetailsModal from './StudentDetailsModal';
 import ConfirmDialog from './ConfirmDialog';
+import TableSkeleton from './TableSkeleton';
+import { formatISTDate } from '@/lib/formatDate';
 
 interface StudentTableProps {
   students: StudentRecord[];
+  loading?: boolean;
   onDelete?: (id: string) => Promise<void> | void;
   onEdit?: (student: StudentRecord) => void;
   colleges?: string[];
@@ -25,7 +28,7 @@ function getPageNumbers(current: number, total: number): (number | '...')[] {
   return pages;
 }
 
-export default function StudentTable({ students, onDelete, onEdit, colleges: collegesProp, defaultFilterCollege, onFilterCollegeChange }: StudentTableProps) {
+export default function StudentTable({ students, loading, onDelete, onEdit, colleges: collegesProp, defaultFilterCollege, onFilterCollegeChange }: StudentTableProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedStudent, setSelectedStudent] = useState<StudentRecord | null>(null);
@@ -82,6 +85,8 @@ export default function StudentTable({ students, onDelete, onEdit, colleges: col
       {children}
     </td>
   );
+
+  if (loading) return <TableSkeleton rows={6} cols={5} />;
 
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:gap-6">
@@ -270,7 +275,7 @@ export default function StudentTable({ students, onDelete, onEdit, colleges: col
 
                     {/* Date */}
                     <Td>
-                      <p className="text-slate-400 font-medium text-xs whitespace-nowrap">{new Date(s.createdAt).toLocaleDateString()}</p>
+                      <p className="text-slate-400 font-medium text-xs whitespace-nowrap">{formatISTDate(s.createdAt)}</p>
                     </Td>
 
                     {/* Actions */}

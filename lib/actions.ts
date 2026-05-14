@@ -1,9 +1,13 @@
 'use server';
 
 import { dbExecute } from './db';
-import { User, StudentRecord, UserRole, DbUser, AuditLog, LoginHistory } from './types';
+import { User, StudentRecord, UserRole, DbUser, DraftRecord, AuditLog, LoginHistory } from './types';
 import { RowDataPacket } from 'mysql2';
 import { headers } from 'next/headers';
+
+function nowIST(): string {
+  return new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Kolkata' }).replace('T', ' ');
+}
 
 async function getRequestMeta() {
   try {
@@ -92,8 +96,8 @@ export async function loginUser(email: string, passwordHash: string) {
     // Record login history (non-blocking)
     const { ip, ua } = await getRequestMeta();
     dbExecute(
-      'INSERT IGNORE INTO login_history (user_email, user_name, ip_address, user_agent) VALUES (?, ?, ?, ?)',
-      [emailClean.toLowerCase(), u.name ?? email, ip, ua]
+      'INSERT INTO login_history (user_email, user_name, ip_address, user_agent, created_at) VALUES (?, ?, ?, ?, ?)',
+      [emailClean.toLowerCase(), u.name ?? email, ip, ua, nowIST()]
     ).catch(() => {});
     return { success: true, message: 'Login successful.', user: rows[0] as User };
   } catch {
@@ -531,6 +535,123 @@ export async function restoreCollegeFromDb(name: string): Promise<{ success: boo
   }
 }
 
+// ── Drafts ─────────────────────────────────────────────────────────────────────
+
+async function ensureDraftsTable() {
+  await dbExecute(`
+    CREATE TABLE IF NOT EXISTS student_drafts (
+      id           VARCHAR(64)  NOT NULL PRIMARY KEY,
+      college      VARCHAR(255) NULL,
+      name         VARCHAR(255) NULL,
+      parentage    VARCHAR(255) NULL,
+      studentid    VARCHAR(255) NULL,
+      rollNo       VARCHAR(255) NULL,
+      studentClass VARCHAR(255) NULL,
+      course       VARCHAR(255) NULL,
+      year         VARCHAR(100) NULL,
+      email        VARCHAR(255) NULL,
+      phone        VARCHAR(50)  NULL,
+      busStop      VARCHAR(255) NULL,
+      bloodGroup   VARCHAR(20)  NULL,
+      photo        MEDIUMBLOB,
+      saved_by     VARCHAR(255) NOT NULL,
+      updated_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+}
+
+export async function saveDraftToDb(draft: DraftRecord): Promise<{ success: boolean; message?: string }> {
+  try {
+    await ensureDraftsTable();
+    const photoBlob = draft.photo
+      ? Buffer.from(draft.photo.replace(/^data:image\/\w+;base64,/, ''), 'base64')
+      : null;
+    await dbExecute(
+      `INSERT INTO student_drafts
+         (id, college, name, parentage, studentid, rollNo, studentClass,
+          course, year, email, phone, busStop, bloodGroup, photo, saved_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         college=VALUES(college), name=VALUES(name), parentage=VALUES(parentage),
+         studentid=VALUES(studentid), rollNo=VALUES(rollNo), studentClass=VALUES(studentClass),
+         course=VALUES(course), year=VALUES(year), email=VALUES(email),
+         phone=VALUES(phone), busStop=VALUES(busStop), bloodGroup=VALUES(bloodGroup),
+         photo=VALUES(photo), saved_by=VALUES(saved_by)`,
+      [
+        draft.id,
+        t(draft.college),
+        t(draft.name),
+        t(draft.parentage),
+        t(draft.studentId),
+        t(draft.rollNo),
+        t(draft.studentClass),
+        t(draft.course),
+        t(draft.year),
+        t(draft.email),
+        t(draft.phone),
+        t(draft.busStop),
+        t(draft.bloodGroup),
+        photoBlob,
+        draft.savedBy,
+      ]
+    );
+    return { success: true };
+  } catch (error) {
+    console.error('Save draft error:', error);
+    return { success: false, message: 'Failed to save draft.' };
+  }
+}
+
+export async function getDraftsByUser(savedBy: string): Promise<DraftRecord[]> {
+  try {
+    await ensureDraftsTable();
+    const [rows] = await dbExecute<RowDataPacket[]>(
+      'SELECT * FROM student_drafts WHERE saved_by = ? ORDER BY updated_at DESC',
+      [savedBy]
+    );
+    return (rows as RowDataPacket[]).map(r => {
+      let photo: string | undefined;
+      const p = r.photo;
+      if (p instanceof Buffer && p.length > 0) {
+        photo = `data:image/png;base64,${p.toString('base64')}`;
+      } else if (typeof p === 'string' && p.length > 0) {
+        photo = p;
+      }
+      return {
+        id:           String(r.id),
+        college:      String(r.college ?? ''),
+        name:         String(r.name ?? ''),
+        phone:        String(r.phone ?? ''),
+        parentage:    r.parentage    ? String(r.parentage)    : undefined,
+        studentId:    r.studentid    ? String(r.studentid)    : undefined,
+        rollNo:       r.rollNo       ? String(r.rollNo)       : undefined,
+        studentClass: r.studentClass ? String(r.studentClass) : undefined,
+        course:       r.course       ? String(r.course)       : undefined,
+        year:         r.year         ? String(r.year)         : undefined,
+        email:        r.email        ? String(r.email)        : undefined,
+        busStop:      r.busStop      ? String(r.busStop)      : undefined,
+        bloodGroup:   r.bloodGroup   ? String(r.bloodGroup)   : undefined,
+        photo,
+        savedBy:    String(r.saved_by),
+        updatedAt:  String(r.updated_at),
+      } as DraftRecord;
+    });
+  } catch (error) {
+    console.error('Get drafts error:', error);
+    return [];
+  }
+}
+
+export async function deleteDraftFromDb(id: string): Promise<{ success: boolean }> {
+  try {
+    await dbExecute('DELETE FROM student_drafts WHERE id = ?', [id]);
+    return { success: true };
+  } catch (error) {
+    console.error('Delete draft error:', error);
+    return { success: false };
+  }
+}
+
 // ── Schema helpers ─────────────────────────────────────────────────────────────
 
 export async function ensureCollegesTable() {
@@ -599,10 +720,10 @@ export async function addAuditLog(data: {
   const { ip, ua } = await getRequestMeta();
   try {
     await dbExecute(
-      `INSERT INTO audit_logs (user_email, user_name, action, entity_type, entity_id, details, ip_address, user_agent)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO audit_logs (user_email, user_name, action, entity_type, entity_id, details, ip_address, user_agent, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [data.userEmail, data.userName, data.action,
-       data.entityType ?? null, data.entityId ?? null, data.details ?? null, ip, ua]
+       data.entityType ?? null, data.entityId ?? null, data.details ?? null, ip, ua, nowIST()]
     );
   } catch { /* non-critical */ }
 }
@@ -616,7 +737,10 @@ export async function getAuditLogs(): Promise<AuditLog[]> {
               created_at AS createdAt
        FROM audit_logs ORDER BY created_at DESC LIMIT 500`
     );
-    return rows as AuditLog[];
+    return (rows as RowDataPacket[]).map(r => ({
+      ...r,
+      createdAt: String(r.createdAt),
+    })) as AuditLog[];
   } catch { return []; }
 }
 
@@ -636,7 +760,10 @@ export async function getAuditLogsByCollege(college: string): Promise<AuditLog[]
        ORDER BY al.created_at DESC LIMIT 300`,
       [college]
     );
-    return rows as AuditLog[];
+    return (rows as RowDataPacket[]).map(r => ({
+      ...r,
+      createdAt: String(r.createdAt),
+    })) as AuditLog[];
   } catch { return []; }
 }
 
@@ -665,7 +792,10 @@ export async function getLoginHistory(): Promise<LoginHistory[]> {
               created_at AS createdAt
        FROM login_history ORDER BY created_at DESC LIMIT 500`
     );
-    return rows as LoginHistory[];
+    return (rows as RowDataPacket[]).map(r => ({
+      ...r,
+      createdAt: String(r.createdAt),
+    })) as LoginHistory[];
   } catch { return []; }
 }
 
@@ -684,7 +814,10 @@ export async function getLoginHistoryByCollege(college: string): Promise<LoginHi
        ORDER BY lh.created_at DESC LIMIT 300`,
       [college]
     );
-    return rows as LoginHistory[];
+    return (rows as RowDataPacket[]).map(r => ({
+      ...r,
+      createdAt: String(r.createdAt),
+    })) as LoginHistory[];
   } catch { return []; }
 }
 
