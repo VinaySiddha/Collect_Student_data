@@ -56,6 +56,7 @@ export interface DraftRecord {
   bloodGroup?: string;
   dob?: string;
   address?: string;
+  percentage?: string;
   photo?: string;
   savedBy: string;
   updatedAt: string;
@@ -78,6 +79,7 @@ export interface StudentRecord {
   bloodGroup?: string;
   dob?: string;
   address?: string;
+  percentage?: string;
   photo?: string;
   createdBy?: string;
   deletedBy?: string | null;

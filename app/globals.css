@@ -55,6 +55,11 @@ button, input, select, textarea {
   }
 }
 
+@keyframes shimmer {
+  0%   { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
+
 .fade-in {
   animation: fadeIn 0.9s ease-out forwards;
 }

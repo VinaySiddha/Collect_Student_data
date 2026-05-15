@@ -27,8 +27,45 @@ type View = 'dashboard' | 'register';
 const EMPTY_FORM = {
   college: '', name: '', parentage: '', studentId: '', rollNo: '',
   studentClass: '', course: '', year: '', email: '', phone: '',
-  busStop: '', bloodGroup: '', dob: '', address: '',
+  busStop: '', bloodGroup: '', dob: '', address: '', percentage: '',
 };
+
+type FormType = typeof EMPTY_FORM;
+
+function validateField(field: keyof FormType, value: string, form: FormType, existing: { phone: string; name: string }[]): string {
+  switch (field) {
+    case 'name':
+      if (!value.trim()) return 'Student name is required.';
+      if (value.trim().length < 2) return 'Name must be at least 2 characters.';
+      return '';
+    case 'parentage':
+      if (!value.trim()) return 'Father / Mother name is required.';
+      if (value.trim().length < 2) return 'Must be at least 2 characters.';
+      return '';
+    case 'phone': {
+      if (!value.trim()) return 'Contact number is required.';
+      const digits = value.replace(/\D/g, '');
+      if (digits.length !== 10) return 'Enter a valid 10-digit phone number.';
+      const dup = existing.find(s => s.phone.replace(/\D/g, '') === digits);
+      if (dup) return `Already registered for "${dup.name}".`;
+      return '';
+    }
+    case 'email':
+      if (value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return 'Enter a valid email address.';
+      return '';
+    case 'percentage': {
+      if (!value) return '';
+      const n = parseFloat(value);
+      if (isNaN(n) || n < 0 || n > 100) return 'Percentage must be between 0 and 100.';
+      return '';
+    }
+    case 'dob':
+      if (value && new Date(value) > new Date()) return 'Date of birth cannot be in the future.';
+      return '';
+    default:
+      return '';
+  }
+}
 
 const DRAFT_KEY = 'faculty_register_draft';
 
@@ -54,7 +91,8 @@ export default function FacultyPage() {
   const [draftDeleteId, setDraftDeleteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery]     = useState('');
   const [filterClass, setFilterClass]     = useState('');
-  const [formErrors, setFormErrors]       = useState<Record<string, string>>({});
+  const [formErrors, setFormErrors]       = useState<Partial<Record<keyof FormType, string>>>({});
+  const [touched, setTouched]             = useState<Partial<Record<keyof FormType, boolean>>>({});
   const [photoError, setPhotoError]       = useState<string | null>(null);
 
   const hasUnsavedRegister = () =>
@@ -166,6 +204,7 @@ export default function FacultyPage() {
       bloodGroup:   draft.bloodGroup   ?? '',
       dob:          draft.dob          ?? '',
       address:      draft.address      ?? '',
+      percentage:   draft.percentage   ?? '',
     }));
     setPhotoPreview(draft.photo ?? null);
     setActiveDraftId(draft.id);
@@ -323,21 +362,33 @@ export default function FacultyPage() {
     });
   };
 
+  const handleFieldChange = (field: keyof FormType, value: string) => {
+    const next = { ...form, [field]: value };
+    setForm(next);
+    if (touched[field]) {
+      const err = validateField(field, value, next, facultyStudents.map(s => ({ phone: s.phone, name: s.name })));
+      setFormErrors(prev => ({ ...prev, [field]: err }));
+    }
+  };
+
+  const handleFieldBlur = (field: keyof FormType) => {
+    setTouched(prev => ({ ...prev, [field]: true }));
+    const err = validateField(field, form[field], form, facultyStudents.map(s => ({ phone: s.phone, name: s.name })));
+    setFormErrors(prev => ({ ...prev, [field]: err }));
+  };
+
   // ── Form submit ─────────────────────────────────────────────────────────────
   const createStudent = (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const errors: Record<string, string> = {};
-    if (!form.name.trim())      errors.name      = 'Student name is required.';
-    if (!form.parentage.trim()) errors.parentage  = 'Father / Mother name is required.';
-    if (!form.phone.trim())     errors.phone      = 'Contact number is required.';
-    else if (!/^\d{10}$/.test(form.phone.replace(/\s+/g, '')))
-      errors.phone = 'Enter a valid 10-digit phone number.';
-    else {
-      const phoneNorm = form.phone.replace(/\s+/g, '');
-      const dupPhone  = facultyStudents.find(s => s.phone.replace(/\s+/g, '') === phoneNorm);
-      if (dupPhone) errors.phone = `Phone already registered for "${dupPhone.name}".`;
-    }
+    const fields: (keyof FormType)[] = ['name', 'parentage', 'phone', 'email', 'percentage', 'dob'];
+    const existing = facultyStudents.map(s => ({ phone: s.phone, name: s.name }));
+    const errors: Partial<Record<keyof FormType, string>> = {};
+    fields.forEach(f => {
+      const err = validateField(f, form[f], form, existing);
+      if (err) errors[f] = err;
+    });
     setFormErrors(errors);
+    setTouched(Object.fromEntries(fields.map(f => [f, true])));
     if (Object.keys(errors).length > 0) return;
 
     setConfirmStudent({
@@ -356,6 +407,7 @@ export default function FacultyPage() {
       bloodGroup:   form.bloodGroup   || undefined,
       dob:          form.dob          || undefined,
       address:      form.address      || undefined,
+      percentage:   form.percentage   || undefined,
       photo:        photoPreview      || undefined,
       createdBy:    user?.name || user?.email || 'Unknown',
       createdAt:    new Date().toISOString(),
@@ -380,6 +432,7 @@ export default function FacultyPage() {
       setPhotoPreview(null);
       setUploadFile(null);
       setFormErrors({});
+      setTouched({});
       setPhotoError(null);
       clearDraft(activeDraftId);
       setNotice({ message: 'Student registered successfully.', type: 'success' });
@@ -502,6 +555,7 @@ export default function FacultyPage() {
       Email:         s.email        || '',
       Phone:         s.phone,
       'Date of Birth': s.dob        || '',
+      Percentage:    s.percentage   || '',
       'Blood Group': s.bloodGroup   || '',
       Address:       s.address      || '',
       'Bus Stop':    s.busStop      || '',
@@ -551,6 +605,7 @@ export default function FacultyPage() {
       Email:         s.email        || '',
       Phone:         s.phone,
       'Date of Birth': s.dob        || '',
+      Percentage:    s.percentage   || '',
       'Blood Group': s.bloodGroup   || '',
       Address:       s.address      || '',
       'Bus Stop':    s.busStop      || '',
@@ -1049,22 +1104,24 @@ export default function FacultyPage() {
                       <Label text="Student Name *" />
                       <input
                         value={form.name}
-                        onChange={e => { setForm(f => ({ ...f, name: e.target.value })); setFormErrors(fe => ({ ...fe, name: '' })); }}
+                        onChange={e => handleFieldChange('name', e.target.value)}
+                        onBlur={() => handleFieldBlur('name')}
                         placeholder="Full legal name"
-                        className={`input-field text-sm ${formErrors.name ? 'border-rose-400 focus:ring-rose-300' : ''}`}
+                        className={`input-field text-sm ${formErrors.name ? 'border-rose-400 focus:ring-rose-300' : touched.name && !formErrors.name && form.name ? 'border-emerald-400' : ''}`}
                       />
-                      {formErrors.name && <p className="mt-1 text-xs font-bold text-rose-500">{formErrors.name}</p>}
+                      {formErrors.name ? <p className="mt-1 text-xs font-bold text-rose-500">{formErrors.name}</p> : touched.name && form.name && <p className="mt-1 text-xs font-bold text-emerald-500">✓ Looks good</p>}
                     </label>
 
                     <label className="block sm:col-span-2">
                       <Label text="Father Name / Mother Name *" />
                       <input
                         value={form.parentage}
-                        onChange={e => { setForm(f => ({ ...f, parentage: e.target.value })); setFormErrors(fe => ({ ...fe, parentage: '' })); }}
+                        onChange={e => handleFieldChange('parentage', e.target.value)}
+                        onBlur={() => handleFieldBlur('parentage')}
                         placeholder="Enter father's name or mother's name"
-                        className={`input-field text-sm ${formErrors.parentage ? 'border-rose-400 focus:ring-rose-300' : ''}`}
+                        className={`input-field text-sm ${formErrors.parentage ? 'border-rose-400 focus:ring-rose-300' : touched.parentage && !formErrors.parentage && form.parentage ? 'border-emerald-400' : ''}`}
                       />
-                      {formErrors.parentage && <p className="mt-1 text-xs font-bold text-rose-500">{formErrors.parentage}</p>}
+                      {formErrors.parentage ? <p className="mt-1 text-xs font-bold text-rose-500">{formErrors.parentage}</p> : touched.parentage && form.parentage && <p className="mt-1 text-xs font-bold text-emerald-500">✓ Looks good</p>}
                     </label>
 
                     <label className="block">
@@ -1072,11 +1129,12 @@ export default function FacultyPage() {
                       <input
                         type="tel"
                         value={form.phone}
-                        onChange={e => { setForm(f => ({ ...f, phone: e.target.value })); setFormErrors(fe => ({ ...fe, phone: '' })); }}
+                        onChange={e => handleFieldChange('phone', e.target.value)}
+                        onBlur={() => handleFieldBlur('phone')}
                         placeholder="10-digit number"
-                        className={`input-field text-sm ${formErrors.phone ? 'border-rose-400 focus:ring-rose-300' : ''}`}
+                        className={`input-field text-sm ${formErrors.phone ? 'border-rose-400 focus:ring-rose-300' : touched.phone && !formErrors.phone && form.phone ? 'border-emerald-400' : ''}`}
                       />
-                      {formErrors.phone && <p className="mt-1 text-xs font-bold text-rose-500">{formErrors.phone}</p>}
+                      {formErrors.phone ? <p className="mt-1 text-xs font-bold text-rose-500">{formErrors.phone}</p> : touched.phone && form.phone && <p className="mt-1 text-xs font-bold text-emerald-500">✓ Valid number</p>}
                     </label>
 
                     <label className="block">
@@ -1134,9 +1192,30 @@ export default function FacultyPage() {
                       <input
                         type="date"
                         value={form.dob}
-                        onChange={e => setForm(f => ({ ...f, dob: e.target.value }))}
-                        className="input-field text-sm"
+                        onChange={e => handleFieldChange('dob', e.target.value)}
+                        onBlur={() => handleFieldBlur('dob')}
+                        className={`input-field text-sm ${formErrors.dob ? 'border-rose-400 focus:ring-rose-300' : ''}`}
                       />
+                      {formErrors.dob && <p className="mt-1 text-xs font-bold text-rose-500">{formErrors.dob}</p>}
+                    </label>
+
+                    <label className="block">
+                      <Label text="Percentage %" optional />
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          value={form.percentage}
+                          onChange={e => handleFieldChange('percentage', e.target.value)}
+                          onBlur={() => handleFieldBlur('percentage')}
+                          placeholder="e.g. 85.5"
+                          className={`input-field text-sm pr-8 ${formErrors.percentage ? 'border-rose-400 focus:ring-rose-300' : touched.percentage && !formErrors.percentage && form.percentage ? 'border-emerald-400' : ''}`}
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold pointer-events-none">%</span>
+                      </div>
+                      {formErrors.percentage && <p className="mt-1 text-xs font-bold text-rose-500">{formErrors.percentage}</p>}
                     </label>
 
                     <label className="block">
@@ -1165,10 +1244,12 @@ export default function FacultyPage() {
                       <input
                         type="email"
                         value={form.email}
-                        onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                        onChange={e => handleFieldChange('email', e.target.value)}
+                        onBlur={() => handleFieldBlur('email')}
                         placeholder="student@email.com"
-                        className="input-field text-sm"
+                        className={`input-field text-sm ${formErrors.email ? 'border-rose-400 focus:ring-rose-300' : touched.email && !formErrors.email && form.email ? 'border-emerald-400' : ''}`}
                       />
+                      {formErrors.email && <p className="mt-1 text-xs font-bold text-rose-500">{formErrors.email}</p>}
                     </label>
 
                     <label className="block">

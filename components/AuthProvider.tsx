@@ -49,22 +49,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const initAuth = async () => {
-      // Restore user session from localStorage before any async work
+      // Restore session synchronously from localStorage
       const storedUser = loadAuthUser();
-      if (storedUser) {
-        setUser(storedUser as User);
-      }
+      if (storedUser) setUser(storedUser as User);
 
-      await Promise.all([migrateRoleEnum(), migrateStudentColumns(), ensureCollegesTable(), ensureAuditLogsTable(), ensureLoginHistoryTable()]);
-
-      const [dbStudents, dbColleges] = await Promise.all([
-        getStudents(),
-        getCollegesFromDb(),
-      ]);
-      setStudents(dbStudents);
-      setColleges(dbColleges);
-
+      // Small minimum delay so the loader doesn't flash for a single frame
+      await new Promise(r => setTimeout(r, 400));
       setInitialized(true);
+
+      // Run migrations + data load in background (non-blocking)
+      Promise.all([
+        migrateRoleEnum(),
+        migrateStudentColumns(),
+        ensureCollegesTable(),
+        ensureAuditLogsTable(),
+        ensureLoginHistoryTable(),
+      ]).then(() =>
+        Promise.all([getStudents(), getCollegesFromDb()])
+      ).then(([dbStudents, dbColleges]) => {
+        setStudents(dbStudents);
+        setColleges(dbColleges);
+      }).catch(() => {});
     };
     initAuth();
   }, []);

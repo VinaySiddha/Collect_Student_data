@@ -2,6 +2,7 @@ import './globals.css';
 import type { Metadata } from 'next';
 import { AuthProvider } from '@/components/AuthProvider';
 import { Header } from '@/components/Header';
+import AppShell from '@/components/AppShell';
 
 export const metadata: Metadata = {
   title: 'Gographic - Student ID Card Data Portal',
@@ -13,8 +14,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body suppressHydrationWarning>
         <AuthProvider>
-          <Header />
-          {children}
+          <AppShell>
+            <Header />
+            {children}
+          </AppShell>
         </AuthProvider>
       </body>
     </html>
