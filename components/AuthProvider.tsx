@@ -13,6 +13,7 @@ import {
   updateStudentInDb,
   getCollegesFromDb,
   migrateRoleEnum,
+  migrateStudentColumns,
   ensureCollegesTable,
   ensureAuditLogsTable,
   ensureLoginHistoryTable,
@@ -54,7 +55,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(storedUser as User);
       }
 
-      await Promise.all([migrateRoleEnum(), ensureCollegesTable(), ensureAuditLogsTable(), ensureLoginHistoryTable()]);
+      await Promise.all([migrateRoleEnum(), migrateStudentColumns(), ensureCollegesTable(), ensureAuditLogsTable(), ensureLoginHistoryTable()]);
 
       const [dbStudents, dbColleges] = await Promise.all([
         getStudents(),

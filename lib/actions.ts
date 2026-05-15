@@ -63,6 +63,8 @@ function rowToStudent(row: RowDataPacket): StudentRecord {
     studentClass: r.studentClass ? String(r.studentClass) : undefined,
     busStop:      r.busStop      ? String(r.busStop)      : undefined,
     bloodGroup:   r.bloodGroup   ? String(r.bloodGroup)   : undefined,
+    dob:          r.dob          ? String(r.dob)          : undefined,
+    address:      r.address      ? String(r.address)      : undefined,
     deletedBy:    r.deleted_by   ? String(r.deleted_by)   : null,
     photo,
   };
@@ -151,8 +153,8 @@ export async function addStudentToDb(student: StudentRecord) {
     await dbExecute(
       `INSERT INTO students
          (id, college, name, parentage, studentid, rollNo, studentClass,
-          course, year, email, phone, busStop, bloodGroup, photo, createdby)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          course, year, email, phone, busStop, bloodGroup, dob, address, photo, createdby)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         student.id,
         college,
@@ -167,6 +169,8 @@ export async function addStudentToDb(student: StudentRecord) {
         phone,
         t(student.busStop),
         t(student.bloodGroup),
+        t(student.dob),
+        t(student.address),
         photoBlob,
         t(student.createdBy) ?? 'Unknown',
       ]
@@ -194,7 +198,7 @@ export async function updateStudentInDb(student: StudentRecord) {
       await dbExecute(
         `UPDATE students SET
            college=?, name=?, parentage=?, studentid=?, rollNo=?, studentClass=?,
-           course=?, year=?, email=?, phone=?, busStop=?, bloodGroup=?, photo=?
+           course=?, year=?, email=?, phone=?, busStop=?, bloodGroup=?, dob=?, address=?, photo=?
          WHERE id=? AND deleted_at IS NULL`,
         [
           t(student.college) ?? student.college,
@@ -209,6 +213,8 @@ export async function updateStudentInDb(student: StudentRecord) {
           phone,
           t(student.busStop),
           t(student.bloodGroup),
+          t(student.dob),
+          t(student.address),
           photoBlob,
           student.id,
         ]
@@ -218,7 +224,7 @@ export async function updateStudentInDb(student: StudentRecord) {
       await dbExecute(
         `UPDATE students SET
            college=?, name=?, parentage=?, studentid=?, rollNo=?, studentClass=?,
-           course=?, year=?, email=?, phone=?, busStop=?, bloodGroup=?
+           course=?, year=?, email=?, phone=?, busStop=?, bloodGroup=?, dob=?, address=?
          WHERE id=? AND deleted_at IS NULL`,
         [
           t(student.college) ?? student.college,
@@ -233,6 +239,8 @@ export async function updateStudentInDb(student: StudentRecord) {
           phone,
           t(student.busStop),
           t(student.bloodGroup),
+          t(student.dob),
+          t(student.address),
           student.id,
         ]
       );
@@ -685,6 +693,16 @@ export async function migrateRoleEnum() {
     );
   } catch {
     // Already up to date
+  }
+}
+
+export async function migrateStudentColumns() {
+  const cols = [
+    "ALTER TABLE students ADD COLUMN IF NOT EXISTS dob VARCHAR(20) DEFAULT NULL",
+    "ALTER TABLE students ADD COLUMN IF NOT EXISTS address TEXT DEFAULT NULL",
+  ];
+  for (const sql of cols) {
+    try { await dbExecute(sql); } catch { /* column already exists */ }
   }
 }
 

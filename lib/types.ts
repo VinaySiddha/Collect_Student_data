@@ -54,6 +54,8 @@ export interface DraftRecord {
   studentClass?: string;
   busStop?: string;
   bloodGroup?: string;
+  dob?: string;
+  address?: string;
   photo?: string;
   savedBy: string;
   updatedAt: string;
@@ -74,6 +76,8 @@ export interface StudentRecord {
   studentClass?: string;
   busStop?: string;
   bloodGroup?: string;
+  dob?: string;
+  address?: string;
   photo?: string;
   createdBy?: string;
   deletedBy?: string | null;

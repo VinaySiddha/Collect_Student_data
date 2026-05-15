@@ -73,7 +73,7 @@ export default function AdminPage() {
   const [auditLogs, setAuditLogs]         = useState<AuditLog[]>([]);
   const [loginHistory, setLoginHistory]   = useState<LoginHistory[]>([]);
   const [logsLoading, setLogsLoading]     = useState(false);
-  const [logsTab, setLogsTab]             = useState<'audit' | 'login'>('audit');
+  const [logsTab, setLogsTab]             = useState<'crud' | 'activity' | 'login'>('crud');
 
   // Inactivity logout (15 min)
   const { warningVisible, secondsLeft, stayLoggedIn } = useInactivityLogout(logout);
@@ -1420,74 +1420,100 @@ export default function AdminPage() {
               </div>
 
               {/* Tab switcher */}
-              <div className="flex gap-1 p-1 bg-slate-100 rounded-lg w-fit">
-                {(['audit', 'login'] as const).map(tab => (
-                  <button
-                    key={tab}
-                    onClick={() => setLogsTab(tab)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded text-sm font-black transition ${logsTab === tab ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                  >
-                    {tab === 'audit' ? <FiFileText className="w-3.5 h-3.5" /> : <FiActivity className="w-3.5 h-3.5" />}
-                    {tab === 'audit' ? `Audit Trail (${auditLogs.length})` : `Login History (${loginHistory.length})`}
-                  </button>
-                ))}
-              </div>
+              {(() => {
+                const crudLogs     = auditLogs.filter(l => l.action.startsWith('add') || l.action.startsWith('edit') || l.action.startsWith('update') || l.action.startsWith('delete') || l.action.startsWith('restore'));
+                const activityLogs = auditLogs.filter(l => !(l.action.startsWith('add') || l.action.startsWith('edit') || l.action.startsWith('update') || l.action.startsWith('delete') || l.action.startsWith('restore')));
 
-              {logsLoading ? (
-                <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
-                  <TableSkeleton rows={8} cols={4} />
-                </div>
-              ) : logsTab === 'audit' ? (
-                <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
-                  {auditLogs.length === 0 ? (
-                    <p className="px-6 py-16 text-center text-sm text-slate-400 font-bold">No audit logs yet.</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full text-sm border-separate border-spacing-0">
-                        <thead className="bg-slate-50 text-slate-400 text-[0.6rem] font-black uppercase tracking-widest sticky top-0">
-                          <tr>
-                            <th className="px-4 py-3 text-left whitespace-nowrap">Time</th>
-                            <th className="px-4 py-3 text-left whitespace-nowrap">User</th>
-                            <th className="px-4 py-3 text-left whitespace-nowrap">Action</th>
-                            <th className="px-4 py-3 text-left hidden md:table-cell">Details</th>
-                            <th className="px-4 py-3 text-left hidden lg:table-cell whitespace-nowrap">IP Address</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {auditLogs.map(log => (
-                            <tr key={log.id} className="hover:bg-slate-50/60 transition">
-                              <td className="px-4 py-3 whitespace-nowrap">
-                                <p className="text-xs font-bold text-slate-500">{formatISTDate(log.createdAt)}</p>
-                                <p className="text-[0.65rem] text-slate-400">{formatISTDateTime(log.createdAt)}</p>
-                              </td>
-                              <td className="px-4 py-3">
-                                <p className="font-bold text-slate-800 text-sm truncate max-w-[120px]">{log.userName || log.userEmail}</p>
-                                <p className="text-[0.65rem] text-slate-400 truncate max-w-[120px]">{log.userEmail}</p>
-                              </td>
-                              <td className="px-4 py-3">
-                                <span className={`inline-flex items-center px-2 py-1 rounded text-[0.65rem] font-black uppercase tracking-wide ${
-                                  log.action.startsWith('export') ? 'bg-blue-50 text-blue-600' :
-                                  log.action.startsWith('delete') ? 'bg-rose-50 text-rose-600' :
-                                  log.action.startsWith('add') ? 'bg-emerald-50 text-emerald-600' :
-                                  'bg-slate-100 text-slate-500'
-                                }`}>
-                                  {log.action.replace(/_/g, ' ')}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 hidden md:table-cell">
-                                <p className="text-xs text-slate-500 truncate max-w-[200px]">{log.details ?? '—'}</p>
-                              </td>
-                              <td className="px-4 py-3 hidden lg:table-cell">
-                                <p className="text-xs font-mono text-slate-400">{log.ipAddress ?? '—'}</p>
-                              </td>
+                const tabs = [
+                  { key: 'crud'     as const, label: 'Add / Edit / Delete', count: crudLogs.length,         icon: <FiFileText className="w-3.5 h-3.5" /> },
+                  { key: 'activity' as const, label: 'Other Activity',       count: activityLogs.length,     icon: <FiActivity className="w-3.5 h-3.5" /> },
+                  { key: 'login'    as const, label: 'Login History',         count: loginHistory.length,     icon: <FiActivity className="w-3.5 h-3.5" /> },
+                ];
+
+                const AuditTable = ({ logs }: { logs: AuditLog[] }) => (
+                  <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+                    {logs.length === 0 ? (
+                      <p className="px-6 py-16 text-center text-sm text-slate-400 font-bold">No logs yet.</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-sm border-separate border-spacing-0">
+                          <thead className="bg-slate-50 text-slate-400 text-[0.6rem] font-black uppercase tracking-widest sticky top-0">
+                            <tr>
+                              <th className="px-4 py-3 text-left whitespace-nowrap">Time</th>
+                              <th className="px-4 py-3 text-left whitespace-nowrap">User</th>
+                              <th className="px-4 py-3 text-left whitespace-nowrap">Action</th>
+                              <th className="px-4 py-3 text-left hidden md:table-cell">Details</th>
+                              <th className="px-4 py-3 text-left hidden lg:table-cell whitespace-nowrap">IP Address</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {logs.map(log => (
+                              <tr key={log.id} className="hover:bg-slate-50/60 transition">
+                                <td className="px-4 py-3 whitespace-nowrap">
+                                  <p className="text-xs font-bold text-slate-500">{formatISTDate(log.createdAt)}</p>
+                                  <p className="text-[0.65rem] text-slate-400">{formatISTDateTime(log.createdAt)}</p>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <p className="font-bold text-slate-800 text-sm truncate max-w-[120px]">{log.userName || log.userEmail}</p>
+                                  <p className="text-[0.65rem] text-slate-400 truncate max-w-[120px]">{log.userEmail}</p>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className={`inline-flex items-center px-2 py-1 rounded text-[0.65rem] font-black uppercase tracking-wide ${
+                                    log.action.startsWith('export')  ? 'bg-blue-50 text-blue-600'    :
+                                    log.action.startsWith('delete')  ? 'bg-rose-50 text-rose-600'    :
+                                    log.action.startsWith('add')     ? 'bg-emerald-50 text-emerald-600' :
+                                    log.action.startsWith('edit') || log.action.startsWith('update') ? 'bg-amber-50 text-amber-600' :
+                                    log.action.startsWith('restore') ? 'bg-violet-50 text-violet-600' :
+                                    'bg-slate-100 text-slate-500'
+                                  }`}>
+                                    {log.action.replace(/_/g, ' ')}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 hidden md:table-cell">
+                                  <p className="text-xs text-slate-500 truncate max-w-[200px]">{log.details ?? '—'}</p>
+                                </td>
+                                <td className="px-4 py-3 hidden lg:table-cell">
+                                  <p className="text-xs font-mono text-slate-400">{log.ipAddress ?? '—'}</p>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+
+                return (
+                  <>
+                    <div className="flex gap-1 p-1 bg-slate-100 rounded-lg w-fit flex-wrap">
+                      {tabs.map(tab => (
+                        <button
+                          key={tab.key}
+                          onClick={() => setLogsTab(tab.key)}
+                          className={`flex items-center gap-2 px-4 py-2 rounded text-sm font-black transition ${logsTab === tab.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                          {tab.icon}
+                          {tab.label}
+                          <span className="ml-1 px-1.5 py-0.5 rounded bg-slate-200 text-slate-500 text-[0.6rem] font-black">{tab.count}</span>
+                        </button>
+                      ))}
                     </div>
-                  )}
-                </div>
-              ) : (
+
+                    {logsLoading ? (
+                      <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+                        <TableSkeleton rows={8} cols={4} />
+                      </div>
+                    ) : logsTab === 'crud' ? (
+                      <AuditTable logs={crudLogs} />
+                    ) : logsTab === 'activity' ? (
+                      <AuditTable logs={activityLogs} />
+                    ) : null}
+                  </>
+                );
+              })()}
+
+              {!logsLoading && logsTab === 'login' && (
                 <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
                   {loginHistory.length === 0 ? (
                     <p className="px-6 py-16 text-center text-sm text-slate-400 font-bold">No login history yet.</p>

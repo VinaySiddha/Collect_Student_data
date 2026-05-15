@@ -27,7 +27,7 @@ type View = 'dashboard' | 'register';
 const EMPTY_FORM = {
   college: '', name: '', parentage: '', studentId: '', rollNo: '',
   studentClass: '', course: '', year: '', email: '', phone: '',
-  busStop: '', bloodGroup: '',
+  busStop: '', bloodGroup: '', dob: '', address: '',
 };
 
 const DRAFT_KEY = 'faculty_register_draft';
@@ -54,6 +54,8 @@ export default function FacultyPage() {
   const [draftDeleteId, setDraftDeleteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery]     = useState('');
   const [filterClass, setFilterClass]     = useState('');
+  const [formErrors, setFormErrors]       = useState<Record<string, string>>({});
+  const [photoError, setPhotoError]       = useState<string | null>(null);
 
   const hasUnsavedRegister = () =>
     activeView === 'register' && (
@@ -162,6 +164,8 @@ export default function FacultyPage() {
       phone:        draft.phone        ?? '',
       busStop:      draft.busStop      ?? '',
       bloodGroup:   draft.bloodGroup   ?? '',
+      dob:          draft.dob          ?? '',
+      address:      draft.address      ?? '',
     }));
     setPhotoPreview(draft.photo ?? null);
     setActiveDraftId(draft.id);
@@ -235,6 +239,13 @@ export default function FacultyPage() {
 
   const handlePhotoFile = (file: File | null) => {
     if (!file) { setPhotoPreview(null); return; }
+    const MAX_MB = 5;
+    if (file.size > MAX_MB * 1024 * 1024) {
+      setPhotoError(`Photo must be under ${MAX_MB}MB (selected: ${(file.size / 1024 / 1024).toFixed(1)}MB)`);
+      setUploadFile(null);
+      return;
+    }
+    setPhotoError(null);
     const reader = new FileReader();
     reader.onload = e => {
       const src = e.target?.result as string;
@@ -315,9 +326,19 @@ export default function FacultyPage() {
   // ── Form submit ─────────────────────────────────────────────────────────────
   const createStudent = (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!form.name.trim())      { setNotice({ message: 'Student Name is required.', type: 'error' }); return; }
-    if (!form.parentage.trim()) { setNotice({ message: 'Parentage is required.', type: 'error' }); return; }
-    if (!form.phone.trim())     { setNotice({ message: 'Contact Number is required.', type: 'error' }); return; }
+    const errors: Record<string, string> = {};
+    if (!form.name.trim())      errors.name      = 'Student name is required.';
+    if (!form.parentage.trim()) errors.parentage  = 'Father / Mother name is required.';
+    if (!form.phone.trim())     errors.phone      = 'Contact number is required.';
+    else if (!/^\d{10}$/.test(form.phone.replace(/\s+/g, '')))
+      errors.phone = 'Enter a valid 10-digit phone number.';
+    else {
+      const phoneNorm = form.phone.replace(/\s+/g, '');
+      const dupPhone  = facultyStudents.find(s => s.phone.replace(/\s+/g, '') === phoneNorm);
+      if (dupPhone) errors.phone = `Phone already registered for "${dupPhone.name}".`;
+    }
+    setFormErrors(errors);
+    if (Object.keys(errors).length > 0) return;
 
     setConfirmStudent({
       id:           `${Date.now()}`,
@@ -333,6 +354,8 @@ export default function FacultyPage() {
       phone:        form.phone,
       busStop:      form.busStop      || undefined,
       bloodGroup:   form.bloodGroup   || undefined,
+      dob:          form.dob          || undefined,
+      address:      form.address      || undefined,
       photo:        photoPreview      || undefined,
       createdBy:    user?.name || user?.email || 'Unknown',
       createdAt:    new Date().toISOString(),
@@ -356,6 +379,8 @@ export default function FacultyPage() {
       setForm(prev => ({ ...EMPTY_FORM, college: prev.college }));
       setPhotoPreview(null);
       setUploadFile(null);
+      setFormErrors({});
+      setPhotoError(null);
       clearDraft(activeDraftId);
       setNotice({ message: 'Student registered successfully.', type: 'success' });
       setTimeout(() => setNotice(null), 4000);
@@ -467,7 +492,7 @@ export default function FacultyPage() {
       '#':           i + 1,
       'Photo':       s.photo ? `${i + 1}.png` : '',
       Name:          s.name,
-      Parentage:     s.parentage    || '',
+      'Father/Mother Name': s.parentage || '',
       'Student ID':  s.studentId    || '',
       'Roll No.':    s.rollNo       || '',
       Class:         s.studentClass || '',
@@ -476,8 +501,10 @@ export default function FacultyPage() {
       Year:          s.year         || '',
       Email:         s.email        || '',
       Phone:         s.phone,
-      'Bus Stop':    s.busStop      || '',
+      'Date of Birth': s.dob        || '',
       'Blood Group': s.bloodGroup   || '',
+      Address:       s.address      || '',
+      'Bus Stop':    s.busStop      || '',
       'Added By':    s.createdBy    || 'Unknown',
       'Created At':  formatISTDate(s.createdAt),
     })));
@@ -514,7 +541,7 @@ export default function FacultyPage() {
       '#':           i + 1,
       'Photo':       s.photo ? `${i + 1}.png` : '',
       Name:          s.name,
-      Parentage:     s.parentage    || '',
+      'Father/Mother Name': s.parentage || '',
       'Student ID':  s.studentId    || '',
       'Roll No.':    s.rollNo       || '',
       Class:         s.studentClass || '',
@@ -523,8 +550,10 @@ export default function FacultyPage() {
       Year:          s.year         || '',
       Email:         s.email        || '',
       Phone:         s.phone,
-      'Bus Stop':    s.busStop      || '',
+      'Date of Birth': s.dob        || '',
       'Blood Group': s.bloodGroup   || '',
+      Address:       s.address      || '',
+      'Bus Stop':    s.busStop      || '',
       'Added By':    s.createdBy    || 'Unknown',
       'Created At':  formatISTDate(s.createdAt),
     })));
@@ -981,13 +1010,13 @@ export default function FacultyPage() {
                             <FiUpload className="w-4 h-4" /> Upload
                           </button>
                         </div>
-                        <button type="button" onClick={() => startCamera('user')} className="flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-bold py-2.5 rounded hover:bg-green-50 hover:border-green-300 hover:text-green-600 transition text-sm">
+                        <button type="button" onClick={() => startCamera('user')} className="hidden sm:flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-bold py-2.5 rounded hover:bg-green-50 hover:border-green-300 hover:text-green-600 transition text-sm">
                           <FiCamera className="w-4 h-4" /> Camera
                         </button>
                         <div className="relative sm:hidden col-span-2">
                           <input type="file" accept="image/*" capture="environment" onChange={e => { const f = e.target.files?.[0] ?? null; setUploadFile(f); handlePhotoFile(f); e.target.value = ''; }} className="opacity-0 absolute inset-0 w-full h-full z-10 cursor-pointer" />
                           <button type="button" className="w-full flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-bold py-2.5 rounded hover:bg-purple-50 hover:border-purple-300 hover:text-purple-600 transition text-sm">
-                            <FiCamera className="w-4 h-4" /> Take Photo (Phone Camera)
+                            <FiCamera className="w-4 h-4" /> Take Photo
                           </button>
                         </div>
                       </div>
@@ -1013,26 +1042,29 @@ export default function FacultyPage() {
                           <p className="text-xs font-medium">No photo selected</p>
                         </div>
                       )}
+                      {photoError && <p className="mt-1.5 text-xs font-bold text-rose-500">{photoError}</p>}
                     </div>
 
                     <label className="block sm:col-span-2">
                       <Label text="Student Name *" />
                       <input
                         value={form.name}
-                        onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                        onChange={e => { setForm(f => ({ ...f, name: e.target.value })); setFormErrors(fe => ({ ...fe, name: '' })); }}
                         placeholder="Full legal name"
-                        className="input-field text-sm"
+                        className={`input-field text-sm ${formErrors.name ? 'border-rose-400 focus:ring-rose-300' : ''}`}
                       />
+                      {formErrors.name && <p className="mt-1 text-xs font-bold text-rose-500">{formErrors.name}</p>}
                     </label>
 
                     <label className="block sm:col-span-2">
-                      <Label text="Parentage *" />
+                      <Label text="Father Name / Mother Name *" />
                       <input
                         value={form.parentage}
-                        onChange={e => setForm(f => ({ ...f, parentage: e.target.value }))}
-                        placeholder="e.g. S/O Ramesh Kumar"
-                        className="input-field text-sm"
+                        onChange={e => { setForm(f => ({ ...f, parentage: e.target.value })); setFormErrors(fe => ({ ...fe, parentage: '' })); }}
+                        placeholder="Enter father's name or mother's name"
+                        className={`input-field text-sm ${formErrors.parentage ? 'border-rose-400 focus:ring-rose-300' : ''}`}
                       />
+                      {formErrors.parentage && <p className="mt-1 text-xs font-bold text-rose-500">{formErrors.parentage}</p>}
                     </label>
 
                     <label className="block">
@@ -1040,10 +1072,11 @@ export default function FacultyPage() {
                       <input
                         type="tel"
                         value={form.phone}
-                        onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                        placeholder="+91 00000 00000"
-                        className="input-field text-sm"
+                        onChange={e => { setForm(f => ({ ...f, phone: e.target.value })); setFormErrors(fe => ({ ...fe, phone: '' })); }}
+                        placeholder="10-digit number"
+                        className={`input-field text-sm ${formErrors.phone ? 'border-rose-400 focus:ring-rose-300' : ''}`}
                       />
+                      {formErrors.phone && <p className="mt-1 text-xs font-bold text-rose-500">{formErrors.phone}</p>}
                     </label>
 
                     <label className="block">
@@ -1057,21 +1090,21 @@ export default function FacultyPage() {
                     </label>
 
                     <label className="block">
-                      <Label text="Registration ID" optional />
+                      <Label text="Admission Number" optional />
                       <input
                         value={form.studentId}
                         onChange={e => setForm(f => ({ ...f, studentId: e.target.value }))}
-                        placeholder="e.g. STU-001"
+                        placeholder="e.g. ADM-2024-001"
                         className="input-field text-sm"
                       />
                     </label>
 
                     <label className="block">
-                      <Label text="Class" optional />
+                      <Label text="Class / Section" optional />
                       <input
                         value={form.studentClass}
                         onChange={e => setForm(f => ({ ...f, studentClass: e.target.value }))}
-                        placeholder="e.g. 10th / B.Tech 3rd"
+                        placeholder="e.g. 10-A / B.Tech 3rd"
                         className="input-field text-sm"
                       />
                     </label>
@@ -1097,12 +1130,33 @@ export default function FacultyPage() {
                     </label>
 
                     <label className="block">
+                      <Label text="Date of Birth" optional />
+                      <input
+                        type="date"
+                        value={form.dob}
+                        onChange={e => setForm(f => ({ ...f, dob: e.target.value }))}
+                        className="input-field text-sm"
+                      />
+                    </label>
+
+                    <label className="block">
                       <Label text="Blood Group" optional />
                       <input
                         value={form.bloodGroup}
                         onChange={e => setForm(f => ({ ...f, bloodGroup: e.target.value }))}
                         placeholder="e.g. O+"
                         className="input-field text-sm"
+                      />
+                    </label>
+
+                    <label className="block sm:col-span-2">
+                      <Label text="Address" optional />
+                      <textarea
+                        value={form.address}
+                        onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
+                        placeholder="Full address"
+                        rows={2}
+                        className="input-field text-sm resize-none"
                       />
                     </label>
 

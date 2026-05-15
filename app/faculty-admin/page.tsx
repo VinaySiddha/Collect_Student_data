@@ -87,12 +87,14 @@ export default function FacultyAdminPage() {
   const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // Register view state
-  const EMPTY_FORM = { name: '', parentage: '', studentId: '', rollNo: '', studentClass: '', course: '', year: '', email: '', phone: '', busStop: '', bloodGroup: '' };
+  const EMPTY_FORM = { name: '', parentage: '', studentId: '', rollNo: '', studentClass: '', course: '', year: '', email: '', phone: '', busStop: '', bloodGroup: '', dob: '', address: '' };
   const [form, setForm] = useState(EMPTY_FORM);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [notice, setNotice] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [submissionCount, setSubmissionCount] = useState(0);
+  const [formErrors, setFormErrors]       = useState<Record<string, string>>({});
+  const [photoError, setPhotoError]       = useState<string | null>(null);
 
   // Camera
   const videoRef  = useRef<HTMLVideoElement>(null);
@@ -242,7 +244,7 @@ export default function FacultyAdminPage() {
       '#':           i + 1,
       'Photo':       s.photo ? `${i + 1}.png` : '',
       Name:          s.name,
-      Parentage:     s.parentage    || '',
+      'Father/Mother Name': s.parentage || '',
       'Student ID':  s.studentId    || '',
       'Roll No.':    s.rollNo       || '',
       Class:         s.studentClass || '',
@@ -251,8 +253,10 @@ export default function FacultyAdminPage() {
       Year:          s.year         || '',
       Email:         s.email        || '',
       Phone:         s.phone,
-      'Bus Stop':    s.busStop      || '',
+      'Date of Birth': s.dob        || '',
       'Blood Group': s.bloodGroup   || '',
+      Address:       s.address      || '',
+      'Bus Stop':    s.busStop      || '',
       'Added By':    s.createdBy    || 'Unknown',
       'Created At':  formatISTDate(s.createdAt),
     })));
@@ -279,7 +283,7 @@ export default function FacultyAdminPage() {
       '#':           i + 1,
       'Photo':       s.photo ? `${i + 1}.png` : '',
       Name:          s.name,
-      Parentage:     s.parentage    || '',
+      'Father/Mother Name': s.parentage || '',
       'Student ID':  s.studentId    || '',
       'Roll No.':    s.rollNo       || '',
       Class:         s.studentClass || '',
@@ -288,8 +292,10 @@ export default function FacultyAdminPage() {
       Year:          s.year         || '',
       Email:         s.email        || '',
       Phone:         s.phone,
-      'Bus Stop':    s.busStop      || '',
+      'Date of Birth': s.dob        || '',
       'Blood Group': s.bloodGroup   || '',
+      Address:       s.address      || '',
+      'Bus Stop':    s.busStop      || '',
       'Added By':    s.createdBy    || 'Unknown',
       'Created At':  formatISTDate(s.createdAt),
     })));
@@ -344,6 +350,13 @@ export default function FacultyAdminPage() {
 
   const handlePhotoFile = (file: File | null) => {
     if (!file) { setPhotoPreview(null); return; }
+    const MAX_MB = 5;
+    if (file.size > MAX_MB * 1024 * 1024) {
+      setPhotoError(`Photo must be under ${MAX_MB}MB (selected: ${(file.size / 1024 / 1024).toFixed(1)}MB)`);
+      setUploadFile(null);
+      return;
+    }
+    setPhotoError(null);
     const reader = new FileReader();
     reader.onload = e => setCropSource(e.target?.result as string);
     reader.readAsDataURL(file);
@@ -447,7 +460,7 @@ export default function FacultyAdminPage() {
       studentClass: draft.studentClass ?? '', course: draft.course ?? '',
       year: draft.year ?? '', email: draft.email ?? '',
       phone: draft.phone ?? '', busStop: draft.busStop ?? '',
-      bloodGroup: draft.bloodGroup ?? '',
+      bloodGroup: draft.bloodGroup ?? '', dob: draft.dob ?? '', address: draft.address ?? '',
     });
     setPhotoPreview(draft.photo ?? null);
     setActiveDraftId(draft.id);
@@ -472,9 +485,19 @@ export default function FacultyAdminPage() {
   const createStudent = (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!user?.college) { setNotice({ message: 'No college associated with your account.', type: 'error' }); return; }
-    if (!form.name.trim())      { setNotice({ message: 'Student Name is required.', type: 'error' }); return; }
-    if (!form.parentage.trim()) { setNotice({ message: 'Parentage is required.', type: 'error' }); return; }
-    if (!form.phone.trim())     { setNotice({ message: 'Contact Number is required.', type: 'error' }); return; }
+    const errors: Record<string, string> = {};
+    if (!form.name.trim())      errors.name      = 'Student name is required.';
+    if (!form.parentage.trim()) errors.parentage  = 'Father / Mother name is required.';
+    if (!form.phone.trim())     errors.phone      = 'Contact number is required.';
+    else if (!/^\d{10}$/.test(form.phone.replace(/\s+/g, '')))
+      errors.phone = 'Enter a valid 10-digit phone number.';
+    else {
+      const phoneNorm = form.phone.replace(/\s+/g, '');
+      const dupPhone  = students.find(s => s.phone.replace(/\s+/g, '') === phoneNorm);
+      if (dupPhone) errors.phone = `Phone already registered for "${dupPhone.name}".`;
+    }
+    setFormErrors(errors);
+    if (Object.keys(errors).length > 0) return;
 
     setConfirmStudent({
       id:           `${Date.now()}`,
@@ -490,6 +513,8 @@ export default function FacultyAdminPage() {
       phone:        form.phone,
       busStop:      form.busStop      || undefined,
       bloodGroup:   form.bloodGroup   || undefined,
+      dob:          form.dob          || undefined,
+      address:      form.address      || undefined,
       photo:        photoPreview      || undefined,
       createdBy:    user?.name || user?.email || 'Unknown',
       createdAt:    new Date().toISOString(),
@@ -511,6 +536,8 @@ export default function FacultyAdminPage() {
         setForm(EMPTY_FORM);
         setPhotoPreview(null);
         setUploadFile(null);
+        setFormErrors({});
+        setPhotoError(null);
         clearDraft(activeDraftId);
         showToast('Student registered successfully.', 'success');
         addAuditLog({
@@ -1086,13 +1113,13 @@ export default function FacultyAdminPage() {
                               <FiUpload className="w-4 h-4" /> Upload
                             </button>
                           </div>
-                          <button type="button" onClick={() => startCamera('user')} className="flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-bold py-2.5 rounded hover:bg-green-50 hover:border-green-300 hover:text-green-600 transition text-sm">
+                          <button type="button" onClick={() => startCamera('user')} className="hidden sm:flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-bold py-2.5 rounded hover:bg-green-50 hover:border-green-300 hover:text-green-600 transition text-sm">
                             <FiCamera className="w-4 h-4" /> Camera
                           </button>
                           <div className="relative sm:hidden col-span-2">
                             <input type="file" accept="image/*" capture="environment" onChange={e => { const f = e.target.files?.[0] ?? null; setUploadFile(f); handlePhotoFile(f); e.target.value = ''; }} className="opacity-0 absolute inset-0 w-full h-full z-10 cursor-pointer" />
                             <button type="button" className="w-full flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-bold py-2.5 rounded hover:bg-purple-50 hover:border-purple-300 hover:text-purple-600 transition text-sm">
-                              <FiCamera className="w-4 h-4" /> Take Photo (Phone Camera)
+                              <FiCamera className="w-4 h-4" /> Take Photo
                             </button>
                           </div>
                         </div>
@@ -1118,21 +1145,25 @@ export default function FacultyAdminPage() {
                             <p className="text-xs font-medium">No photo selected</p>
                           </div>
                         )}
+                        {photoError && <p className="mt-1.5 text-xs font-bold text-rose-500">{photoError}</p>}
                       </div>
 
                       <label className="block sm:col-span-2">
                         <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Student Name *</span>
-                        <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Full legal name" className="input-field text-sm" />
+                        <input value={form.name} onChange={e => { setForm(f => ({ ...f, name: e.target.value })); setFormErrors(fe => ({ ...fe, name: '' })); }} placeholder="Full legal name" className={`input-field text-sm ${formErrors.name ? 'border-rose-400 focus:ring-rose-300' : ''}`} />
+                        {formErrors.name && <p className="mt-1 text-xs font-bold text-rose-500">{formErrors.name}</p>}
                       </label>
 
                       <label className="block sm:col-span-2">
-                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Parentage *</span>
-                        <input value={form.parentage} onChange={e => setForm(f => ({ ...f, parentage: e.target.value }))} placeholder="e.g. S/O Ramesh Kumar" className="input-field text-sm" />
+                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Father Name / Mother Name *</span>
+                        <input value={form.parentage} onChange={e => { setForm(f => ({ ...f, parentage: e.target.value })); setFormErrors(fe => ({ ...fe, parentage: '' })); }} placeholder="Enter father's name or mother's name" className={`input-field text-sm ${formErrors.parentage ? 'border-rose-400 focus:ring-rose-300' : ''}`} />
+                        {formErrors.parentage && <p className="mt-1 text-xs font-bold text-rose-500">{formErrors.parentage}</p>}
                       </label>
 
                       <label className="block">
                         <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Contact Number *</span>
-                        <input type="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="+91 00000 00000" className="input-field text-sm" />
+                        <input type="tel" value={form.phone} onChange={e => { setForm(f => ({ ...f, phone: e.target.value })); setFormErrors(fe => ({ ...fe, phone: '' })); }} placeholder="10-digit number" className={`input-field text-sm ${formErrors.phone ? 'border-rose-400 focus:ring-rose-300' : ''}`} />
+                        {formErrors.phone && <p className="mt-1 text-xs font-bold text-rose-500">{formErrors.phone}</p>}
                       </label>
 
                       <label className="block">
@@ -1141,13 +1172,13 @@ export default function FacultyAdminPage() {
                       </label>
 
                       <label className="block">
-                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Registration ID <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span></span>
-                        <input value={form.studentId} onChange={e => setForm(f => ({ ...f, studentId: e.target.value }))} placeholder="e.g. STU-001" className="input-field text-sm" />
+                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Admission Number <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span></span>
+                        <input value={form.studentId} onChange={e => setForm(f => ({ ...f, studentId: e.target.value }))} placeholder="e.g. ADM-2024-001" className="input-field text-sm" />
                       </label>
 
                       <label className="block">
-                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Class <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span></span>
-                        <input value={form.studentClass} onChange={e => setForm(f => ({ ...f, studentClass: e.target.value }))} placeholder="e.g. 10th / B.Tech 3rd" className="input-field text-sm" />
+                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Class / Section <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span></span>
+                        <input value={form.studentClass} onChange={e => setForm(f => ({ ...f, studentClass: e.target.value }))} placeholder="e.g. 10-A / B.Tech 3rd" className="input-field text-sm" />
                       </label>
 
                       <label className="block">
@@ -1161,8 +1192,18 @@ export default function FacultyAdminPage() {
                       </label>
 
                       <label className="block">
+                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Date of Birth <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span></span>
+                        <input type="date" value={form.dob} onChange={e => setForm(f => ({ ...f, dob: e.target.value }))} className="input-field text-sm" />
+                      </label>
+
+                      <label className="block">
                         <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Blood Group <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span></span>
                         <input value={form.bloodGroup} onChange={e => setForm(f => ({ ...f, bloodGroup: e.target.value }))} placeholder="e.g. O+" className="input-field text-sm" />
+                      </label>
+
+                      <label className="block sm:col-span-2">
+                        <span className="mb-1.5 block text-xs font-black uppercase tracking-widest text-slate-400">Address <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span></span>
+                        <textarea value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Full address" rows={2} className="input-field text-sm resize-none" />
                       </label>
 
                       <label className="block">
