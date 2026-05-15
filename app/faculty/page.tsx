@@ -91,6 +91,7 @@ export default function FacultyPage() {
   const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
   const [showDrafts, setShowDrafts] = useState(false);
   const [draftSaving, setDraftSaving] = useState(false);
+  const [draftAvailable, setDraftAvailable] = useState(false);
 
   // Bulk import photos
   const [bulkPhotoMap, setBulkPhotoMap] = useState<Map<string, string>>(new Map());
@@ -129,6 +130,11 @@ export default function FacultyPage() {
       getDeletedStudentsByCollege(user.college).then(setDeletedStudents);
     }
   }, [activeView, user?.college]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setDraftAvailable(Boolean(localStorage.getItem(DRAFT_KEY)));
+  }, []);
 
   const clearDraft = (draftId?: string | null) => {
     const id = draftId ?? activeDraftId;
