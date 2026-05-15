@@ -52,6 +52,8 @@ export default function FacultyPage() {
   const [submitting, setSubmitting]     = useState(false);
   const [navGuard, setNavGuard]         = useState<View | null>(null);
   const [draftDeleteId, setDraftDeleteId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery]     = useState('');
+  const [filterClass, setFilterClass]     = useState('');
 
   const hasUnsavedRegister = () =>
     activeView === 'register' && (
@@ -573,6 +575,24 @@ export default function FacultyPage() {
       )
     : students.filter(s => s.createdBy === user?.name || s.createdBy === user?.email);
 
+  const filteredStudents = [...facultyStudents]
+    .filter(s => {
+      const q = searchQuery.toLowerCase();
+      const matchesSearch = !q || s.name.toLowerCase().includes(q) || s.phone.includes(q) || (s.rollNo ?? '').toLowerCase().includes(q) || (s.studentId ?? '').toLowerCase().includes(q);
+      const matchesClass = !filterClass || s.studentClass === filterClass;
+      return matchesSearch && matchesClass;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const allClasses = [...new Set(facultyStudents.map(s => s.studentClass).filter(Boolean))] as string[];
+
+  // Duplicate detection: same name + phone (case-insensitive)
+  const dupKey = (s: StudentRecord) => `${s.name.trim().toLowerCase()}|${s.phone.trim()}`;
+  const keyCounts = facultyStudents.reduce<Record<string, number>>((acc, s) => {
+    const k = dupKey(s); acc[k] = (acc[k] ?? 0) + 1; return acc;
+  }, {});
+  const duplicates = facultyStudents.filter(s => keyCounts[dupKey(s)] > 1);
+
   if (!initialized || !user) return null;
 
   const initials = (user.name?.[0] ?? user.email?.[0] ?? 'U').toUpperCase();
@@ -718,8 +738,73 @@ export default function FacultyPage() {
                 </div>
               </div>
 
-              <div className="bg-white rounded border border-slate-200 shadow-sm p-3 sm:p-4 lg:p-6 overflow-x-auto">
-                <StudentTable students={[...facultyStudents].sort((a, b) => a.name.localeCompare(b.name))} onDelete={deleteStudent} onEdit={openEditModal} colleges={colleges} />
+              {/* ── Stat Cards ── */}
+              {(() => {
+                const total        = facultyStudents.length;
+                const withPhoto    = facultyStudents.filter(s => s.photo && s.photo.length > 0).length;
+                const missingPhoto = total - withPhoto;
+                const completed    = facultyStudents.filter(s => s.photo && s.photo.length > 0 && s.parentage && s.phone).length;
+                const pending      = total - completed;
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {[
+                      { label: 'My Students',    value: total,        icon: '👥', color: 'bg-blue-50 border-blue-100',       num: 'text-blue-700',    sub: 'text-blue-400' },
+                      { label: 'Completed',       value: completed,    icon: '✅', color: 'bg-emerald-50 border-emerald-100', num: 'text-emerald-700', sub: 'text-emerald-400' },
+                      { label: 'Pending',         value: pending,      icon: '⏳', color: 'bg-amber-50 border-amber-100',     num: 'text-amber-700',   sub: 'text-amber-400' },
+                      { label: 'Missing Photos',  value: missingPhoto, icon: '📷', color: 'bg-rose-50 border-rose-100',       num: 'text-rose-700',    sub: 'text-rose-400' },
+                    ].map(({ label, value, icon, color, num, sub }) => (
+                      <div key={label} className={`rounded-lg border p-4 ${color}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className={`text-[0.65rem] font-black uppercase tracking-widest ${sub}`}>{label}</p>
+                            <p className={`text-3xl font-black mt-1 ${num}`}>{value}</p>
+                            {total > 0 && <p className={`text-[0.65rem] font-bold mt-1 ${sub}`}>{Math.round(value / total * 100)}%</p>}
+                          </div>
+                          <span className="text-xl">{icon}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {/* Duplicate warning */}
+              {duplicates.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded p-3 flex items-start gap-3">
+                  <span className="text-amber-500 text-lg shrink-0">⚠️</span>
+                  <div>
+                    <p className="text-xs font-black text-amber-700">{duplicates.length / 2 | 0} duplicate entr{duplicates.length / 2 === 1 ? 'y' : 'ies'} detected (same name &amp; phone)</p>
+                    <p className="text-[0.65rem] text-amber-600 mt-0.5">{[...new Set(duplicates.map(s => s.name))].join(', ')}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Search & Filter */}
+              <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+                <div className="px-4 lg:px-6 py-3 border-b border-slate-100 flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Search by name, phone, roll no…"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    className="flex-1 min-w-[160px] text-sm border border-slate-200 rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 font-medium text-slate-700 placeholder:text-slate-300"
+                  />
+                  <select
+                    value={filterClass}
+                    onChange={e => setFilterClass(e.target.value)}
+                    className="text-sm border border-slate-200 rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 font-medium text-slate-600 bg-white"
+                  >
+                    <option value="">All Classes</option>
+                    {allClasses.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  {(searchQuery || filterClass) && (
+                    <button onClick={() => { setSearchQuery(''); setFilterClass(''); }} className="text-xs font-black text-slate-400 hover:text-slate-600 px-2 py-1.5 rounded hover:bg-slate-100 transition">Clear</button>
+                  )}
+                  <span className="ml-auto text-[0.65rem] font-black text-slate-400">{filteredStudents.length} of {facultyStudents.length}</span>
+                </div>
+                <div className="p-3 sm:p-4 lg:p-6 overflow-x-auto">
+                  <StudentTable students={filteredStudents} onDelete={deleteStudent} onEdit={openEditModal} colleges={colleges} hideCollegeFilter />
+                </div>
               </div>
 
               {/* Deleted Students */}

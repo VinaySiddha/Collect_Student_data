@@ -107,6 +107,11 @@ export default function AdminPage() {
   useEffect(() => {
     if (activeView === 'dashboard') {
       getDeletedStudents().then(setDeletedStudents);
+      // Load audit logs for download history cards
+      setLogsLoading(true);
+      Promise.all([getAuditLogs(), getLoginHistory()]).then(([a, l]) => {
+        setAuditLogs(a); setLoginHistory(l); setLogsLoading(false);
+      });
     }
   }, [activeView]);
 
@@ -603,6 +608,124 @@ export default function AdminPage() {
                   </button>
                 </div>
               </div>
+              {/* ── Stat Cards ── */}
+              {(() => {
+                const total        = students.length;
+                const withPhoto    = students.filter(s => s.photo && s.photo.length > 0).length;
+                const missingPhoto = total - withPhoto;
+                const completed    = students.filter(s => s.photo && s.photo.length > 0 && s.parentage && s.phone).length;
+                const pending      = total - completed;
+
+                // School-wise
+                const byCollege = colleges.map(c => {
+                  const cs = students.filter(s => s.college === c);
+                  return { college: c, total: cs.length, withPhoto: cs.filter(s => s.photo && s.photo.length > 0).length, pending: cs.filter(s => !s.photo || !s.photo.length || !s.parentage).length };
+                }).filter(c => c.total > 0);
+
+                // Faculty productivity (top 6)
+                const byFaculty = Object.entries(
+                  students.reduce<Record<string, number>>((acc, s) => { const k = s.createdBy || 'Unknown'; acc[k] = (acc[k] || 0) + 1; return acc; }, {})
+                ).sort((a, b) => b[1] - a[1]).slice(0, 6);
+
+                // Download history (last 6 exports)
+                const downloads = auditLogs.filter(l => l.action.startsWith('export_')).slice(0, 6);
+
+                return (
+                  <div className="space-y-4">
+                    {/* Row 1 — main stats */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                      {[
+                        { label: 'Total Students', value: total,        icon: '👥', color: 'bg-blue-50 border-blue-100',   num: 'text-blue-700',  sub: 'text-blue-400' },
+                        { label: 'Completed',       value: completed,    icon: '✅', color: 'bg-emerald-50 border-emerald-100', num: 'text-emerald-700', sub: 'text-emerald-400' },
+                        { label: 'Pending',         value: pending,      icon: '⏳', color: 'bg-amber-50 border-amber-100',  num: 'text-amber-700', sub: 'text-amber-400' },
+                        { label: 'Missing Photos',  value: missingPhoto, icon: '📷', color: 'bg-rose-50 border-rose-100',    num: 'text-rose-700',  sub: 'text-rose-400' },
+                      ].map(({ label, value, icon, color, num, sub }) => (
+                        <div key={label} className={`rounded-lg border p-4 ${color}`}>
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className={`text-[0.65rem] font-black uppercase tracking-widest ${sub}`}>{label}</p>
+                              <p className={`text-3xl font-black mt-1 ${num}`}>{value}</p>
+                              {total > 0 && <p className={`text-[0.65rem] font-bold mt-1 ${sub}`}>{Math.round(value / total * 100)}% of total</p>}
+                            </div>
+                            <span className="text-xl">{icon}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Row 2 — school-wise + faculty productivity + downloads */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+
+                      {/* School-wise */}
+                      <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+                          <span className="text-base">🏫</span>
+                          <h3 className="text-xs font-black uppercase tracking-widest text-slate-500">School-wise Report</h3>
+                        </div>
+                        <div className="divide-y divide-slate-50 max-h-48 overflow-y-auto">
+                          {byCollege.length === 0 ? (
+                            <p className="px-4 py-6 text-xs text-slate-400 text-center font-bold">No data yet.</p>
+                          ) : byCollege.map(({ college, total: ct, withPhoto: wp, pending: pend }) => (
+                            <div key={college} className="px-4 py-2.5 flex items-center justify-between gap-2 hover:bg-slate-50/60">
+                              <div className="min-w-0">
+                                <p className="text-xs font-bold text-slate-700 truncate">{college}</p>
+                                <p className="text-[0.6rem] text-slate-400 font-medium">{wp} photos · {pend} pending</p>
+                              </div>
+                              <span className="text-sm font-black text-slate-900 shrink-0">{ct}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Faculty productivity */}
+                      <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+                          <span className="text-base">👩‍🏫</span>
+                          <h3 className="text-xs font-black uppercase tracking-widest text-slate-500">Faculty Productivity</h3>
+                        </div>
+                        <div className="divide-y divide-slate-50 max-h-48 overflow-y-auto">
+                          {byFaculty.length === 0 ? (
+                            <p className="px-4 py-6 text-xs text-slate-400 text-center font-bold">No entries yet.</p>
+                          ) : byFaculty.map(([name, count], i) => (
+                            <div key={name} className="px-4 py-2.5 flex items-center gap-3">
+                              <span className={`w-5 h-5 rounded text-[0.6rem] font-black flex items-center justify-center shrink-0 ${i === 0 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-400'}`}>{i + 1}</span>
+                              <p className="text-xs font-bold text-slate-700 truncate flex-1">{name}</p>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <div className="h-1.5 w-16 bg-slate-100 rounded-full overflow-hidden">
+                                  <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.round(count / (byFaculty[0]?.[1] || 1) * 100)}%` }} />
+                                </div>
+                                <span className="text-xs font-black text-slate-600">{count}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Download history */}
+                      <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+                          <span className="text-base">📥</span>
+                          <h3 className="text-xs font-black uppercase tracking-widest text-slate-500">Download History</h3>
+                        </div>
+                        <div className="divide-y divide-slate-50 max-h-48 overflow-y-auto">
+                          {downloads.length === 0 ? (
+                            <p className="px-4 py-6 text-xs text-slate-400 text-center font-bold">No downloads yet.</p>
+                          ) : downloads.map(log => (
+                            <div key={log.id} className="px-4 py-2.5 flex items-start gap-2">
+                              <span className="text-sm mt-0.5">{log.action === 'export_zip' ? '🗜️' : log.action === 'export_excel' ? '📊' : '📄'}</span>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-bold text-slate-700 truncate">{log.userName || log.userEmail}</p>
+                                <p className="text-[0.6rem] text-slate-400 font-medium">{log.action.replace('export_', '').toUpperCase()} · {new Date(log.createdAt).toLocaleDateString()}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div className="bg-white rounded border border-slate-200 shadow-sm p-3 sm:p-4 lg:p-6">
                 <StudentTable key={tableKey} students={[...students].sort((a, b) => a.name.localeCompare(b.name))} onDelete={deleteStudent} onEdit={openEditModal} colleges={colleges} defaultFilterCollege={colleges[0]} onFilterCollegeChange={c => {
                   if (c === null) {

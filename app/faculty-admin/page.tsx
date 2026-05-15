@@ -57,6 +57,9 @@ export default function FacultyAdminPage() {
   const [submitting, setSubmitting] = useState(false);
   const [navGuard, setNavGuard]       = useState<View | null>(null);
   const [draftDeleteId, setDraftDeleteId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery]     = useState('');
+  const [filterClass, setFilterClass]     = useState('');
+  const [filterFaculty, setFilterFaculty] = useState('');
 
   const hasUnsavedRegister = () =>
     activeView === 'register' && (
@@ -619,6 +622,25 @@ export default function FacultyAdminPage() {
 
   if (!initialized || !user || user.role !== 'faculty_admin') return null;
 
+  const filteredStudents = students
+    .filter(s => {
+      const q = searchQuery.toLowerCase();
+      const matchesSearch = !q || s.name.toLowerCase().includes(q) || s.phone.includes(q) || (s.rollNo ?? '').toLowerCase().includes(q) || (s.studentId ?? '').toLowerCase().includes(q);
+      const matchesClass   = !filterClass   || s.studentClass === filterClass;
+      const matchesFaculty = !filterFaculty || s.createdBy === filterFaculty;
+      return matchesSearch && matchesClass && matchesFaculty;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const allClasses  = [...new Set(students.map(s => s.studentClass).filter(Boolean))] as string[];
+  const allFaculty  = [...new Set(students.map(s => s.createdBy).filter(Boolean))]    as string[];
+
+  const dupKey = (s: StudentRecord) => `${s.name.trim().toLowerCase()}|${s.phone.trim()}`;
+  const keyCounts = students.reduce<Record<string, number>>((acc, s) => {
+    const k = dupKey(s); acc[k] = (acc[k] ?? 0) + 1; return acc;
+  }, {});
+  const duplicates = students.filter(s => keyCounts[dupKey(s)] > 1);
+
   const initials = (user.name?.[0] ?? user.email[0]).toUpperCase();
 
   return (
@@ -754,9 +776,7 @@ export default function FacultyAdminPage() {
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <h1 className="text-xl sm:text-2xl font-black text-slate-900 truncate">Dashboard</h1>
-                  <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">
-                    {studentsLoading ? 'Loading…' : `${students.length} students · ${user.college}`}
-                  </p>
+                  <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">{studentsLoading ? 'Loading…' : `${students.length} students · ${user.college}`}</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <button
@@ -780,8 +800,108 @@ export default function FacultyAdminPage() {
                 </div>
               </div>
 
-              <div className="bg-white rounded border border-slate-200 shadow-sm p-3 sm:p-4 lg:p-6">
-                <StudentTable students={students} loading={studentsLoading} onDelete={handleDeleteStudent} />
+              {/* Stat Cards */}
+              {(() => {
+                const total = students.length;
+                const completed = students.filter(s => s.photo && s.photo.length > 0 && s.parentage && s.phone).length;
+                const pending = total - completed;
+                const missingPhoto = students.filter(s => !s.photo || s.photo.length === 0).length;
+                const pct = (n: number) => total > 0 ? Math.round((n / total) * 100) : 0;
+
+                // Faculty productivity within this college
+                const facultyMap: Record<string, number> = {};
+                students.forEach(s => {
+                  const key = s.createdBy ?? 'Unknown';
+                  facultyMap[key] = (facultyMap[key] ?? 0) + 1;
+                });
+                const facultyList = Object.entries(facultyMap).sort((a, b) => b[1] - a[1]);
+                const maxCount = facultyList[0]?.[1] ?? 1;
+
+                return (
+                  <>
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                      {[
+                        { label: 'Total Students', value: total, pct: 100, color: 'bg-violet-500' },
+                        { label: 'Completed', value: completed, pct: pct(completed), color: 'bg-emerald-500' },
+                        { label: 'Pending', value: pending, pct: pct(pending), color: 'bg-amber-500' },
+                        { label: 'Missing Photos', value: missingPhoto, pct: pct(missingPhoto), color: 'bg-rose-500' },
+                      ].map(card => (
+                        <div key={card.label} className="bg-white rounded border border-slate-200 shadow-sm p-4">
+                          <p className="text-[0.65rem] font-black uppercase tracking-widest text-slate-400 mb-1">{card.label}</p>
+                          <p className="text-2xl font-black text-slate-800">{card.value}</p>
+                          <div className="mt-2 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                            <div className={`h-full rounded-full ${card.color}`} style={{ width: `${card.pct}%` }} />
+                          </div>
+                          <p className="text-[0.6rem] text-slate-400 font-bold mt-1">{card.pct}% of total</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {facultyList.length > 0 && (
+                      <div className="bg-white rounded border border-slate-200 shadow-sm p-4 mb-4">
+                        <p className="text-[0.65rem] font-black uppercase tracking-widest text-slate-400 mb-3">Faculty Productivity</p>
+                        <div className="space-y-2">
+                          {facultyList.slice(0, 8).map(([name, count]) => (
+                            <div key={name} className="flex items-center gap-3">
+                              <span className="text-xs font-bold text-slate-600 w-32 truncate shrink-0">{name}</span>
+                              <div className="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
+                                <div className="h-full rounded-full bg-violet-500 transition-all" style={{ width: `${Math.round((count / maxCount) * 100)}%` }} />
+                              </div>
+                              <span className="text-xs font-black text-slate-500 w-8 text-right shrink-0">{count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+
+              {/* Duplicate warning */}
+              {duplicates.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded p-3 flex items-start gap-3">
+                  <span className="text-amber-500 text-lg shrink-0">⚠️</span>
+                  <div>
+                    <p className="text-xs font-black text-amber-700">{Math.floor(duplicates.length / 2)} duplicate entr{Math.floor(duplicates.length / 2) === 1 ? 'y' : 'ies'} detected (same name &amp; phone)</p>
+                    <p className="text-[0.65rem] text-amber-600 mt-0.5">{[...new Set(duplicates.map(s => s.name))].join(', ')}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Search & Filter */}
+              <div className="bg-white rounded border border-slate-200 shadow-sm overflow-hidden">
+                <div className="px-4 lg:px-6 py-3 border-b border-slate-100 flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Search by name, phone, roll no…"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    className="flex-1 min-w-[160px] text-sm border border-slate-200 rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-violet-400 font-medium text-slate-700 placeholder:text-slate-300"
+                  />
+                  <select
+                    value={filterClass}
+                    onChange={e => setFilterClass(e.target.value)}
+                    className="text-sm border border-slate-200 rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-violet-400 font-medium text-slate-600 bg-white"
+                  >
+                    <option value="">All Classes</option>
+                    {allClasses.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <select
+                    value={filterFaculty}
+                    onChange={e => setFilterFaculty(e.target.value)}
+                    className="text-sm border border-slate-200 rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-violet-400 font-medium text-slate-600 bg-white"
+                  >
+                    <option value="">All Faculty</option>
+                    {allFaculty.map(f => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                  {(searchQuery || filterClass || filterFaculty) && (
+                    <button onClick={() => { setSearchQuery(''); setFilterClass(''); setFilterFaculty(''); }} className="text-xs font-black text-slate-400 hover:text-slate-600 px-2 py-1.5 rounded hover:bg-slate-100 transition">Clear</button>
+                  )}
+                  <span className="ml-auto text-[0.65rem] font-black text-slate-400">{filteredStudents.length} of {students.length}</span>
+                </div>
+                <div className="p-3 sm:p-4 lg:p-6">
+                  <StudentTable students={filteredStudents} loading={studentsLoading} onDelete={handleDeleteStudent} hideCollegeFilter />
+                </div>
               </div>
 
               {/* Deleted Students */}

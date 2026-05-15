@@ -16,6 +16,7 @@ interface StudentTableProps {
   colleges?: string[];
   defaultFilterCollege?: string;
   onFilterCollegeChange?: (college: string | null) => void;
+  hideCollegeFilter?: boolean;
 }
 
 function getPageNumbers(current: number, total: number): (number | '...')[] {
@@ -28,7 +29,7 @@ function getPageNumbers(current: number, total: number): (number | '...')[] {
   return pages;
 }
 
-export default function StudentTable({ students, loading, onDelete, onEdit, colleges: collegesProp, defaultFilterCollege, onFilterCollegeChange }: StudentTableProps) {
+export default function StudentTable({ students, loading, onDelete, onEdit, colleges: collegesProp, defaultFilterCollege, onFilterCollegeChange, hideCollegeFilter }: StudentTableProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedStudent, setSelectedStudent] = useState<StudentRecord | null>(null);
@@ -43,7 +44,7 @@ export default function StudentTable({ students, loading, onDelete, onEdit, coll
       : Array.from(new Set(students.map(s => s.college))),
     [students, collegesProp]
   );
-  const showCollegeFilter = uniqueColleges.length > 1;
+  const showCollegeFilter = !hideCollegeFilter && uniqueColleges.length > 1;
 
   const filteredStudents = useMemo(() => {
     const q = searchTerm.toLowerCase();
