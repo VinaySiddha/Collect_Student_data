@@ -2,38 +2,50 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
-import { FiLogIn, FiUser, FiLock } from 'react-icons/fi';
+import { FiEye, FiEyeOff, FiMail, FiLock, FiArrowRight, FiShield, FiUsers, FiCamera } from 'react-icons/fi';
 
-const SCHOOLS = ["St. Xavier's", 'DPS', 'Ryan Intl.', 'Kendriya Vidyalaya', 'Holy Cross', 'Sunrise School'];
+const STATS = [
+  { icon: <FiUsers className="w-4 h-4" />, value: '10,000+', label: 'Students registered' },
+  { icon: <FiCamera className="w-4 h-4" />, value: '50+',     label: 'Institutions served' },
+  { icon: <FiShield className="w-4 h-4" />, value: '100%',    label: 'Secure & encrypted' },
+];
+
+const FEATURES = [
+  'Bulk student registration with photo upload',
+  'Instant ID card generation & printing',
+  'Role-based access for faculty & admin',
+  'Real-time audit logs & activity tracking',
+];
+
+function roleRedirect(role: string) {
+  if (role === 'admin') return '/admin';
+  if (role === 'faculty_admin') return '/faculty-admin';
+  return '/faculty';
+}
 
 export default function LoginPage() {
   const { login, user } = useAuth();
-  const [username, setUsername] = useState('');
+  const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
-  const [message, setMessage] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [showPwd, setShowPwd]   = useState(false);
+  const [message, setMessage]   = useState<string | null>(null);
+  const [loading, setLoading]   = useState(false);
+  const [mounted, setMounted]   = useState(false);
 
-  function roleRedirect(role: string) {
-    if (role === 'admin') return '/admin';
-    if (role === 'faculty_admin') return '/faculty-admin';
-    return '/faculty';
-  }
+  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => { if (user) window.location.href = roleRedirect(user.role); }, [user]);
 
-  useEffect(() => {
-    if (user) window.location.href = roleRedirect(user.role);
-  }, [user]);
-
-  const handleSubmit = async (event: React.SyntheticEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
+    e.preventDefault();
     setMessage(null);
     setLoading(true);
     try {
-      const result = await login(username, password);
+      const result = await login(email, password);
       if (result.success && result.role) {
         window.location.href = roleRedirect(result.role);
       } else {
         setLoading(false);
-        setMessage(result.message || 'Login failed. Please try again.');
+        setMessage(result.message || 'Invalid credentials. Please try again.');
       }
     } catch {
       setLoading(false);
@@ -42,178 +54,249 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row bg-white" style={{ height: '100dvh', overflow: 'hidden' }}>
+    <div className="min-h-[100dvh] flex flex-col lg:flex-row bg-white overflow-hidden">
 
-      {/* LEFT — brand / info panel */}
-      <div className="hidden lg:flex flex-col flex-1 h-full overflow-hidden bg-[#0a0a0a] px-12 py-10 xl:px-16 xl:py-12">
+      {/* ── LEFT — Brand panel ── */}
+      <div className="hidden lg:flex flex-col flex-1 relative overflow-hidden bg-slate-950">
 
-        {/* Brand */}
-        <div className="flex items-center gap-2.5 shrink-0 mb-auto">
-          <div className="w-7 h-7 bg-white rounded flex items-center justify-center shrink-0">
-            <span className="text-[#0a0a0a] font-black text-sm leading-none">G</span>
-          </div>
-          <span className="text-white font-bold text-base tracking-tight">Gographic</span>
+        {/* Gradient orbs */}
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute top-[-80px] left-[-80px] w-[420px] h-[420px] rounded-full bg-violet-600/20 blur-[100px]" />
+          <div className="absolute bottom-[-60px] right-[-60px] w-[380px] h-[380px] rounded-full bg-sky-500/15 blur-[90px]" />
+          <div className="absolute top-1/2 left-1/3 w-[200px] h-[200px] rounded-full bg-emerald-500/10 blur-[80px]" />
         </div>
 
-        {/* Center content */}
-        <div className="shrink-0 my-auto">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/30 mb-5">
-            School ID Card Management
-          </p>
-          <h2 className="text-4xl xl:text-5xl font-black text-white leading-[1.1] tracking-tight mb-5">
-            Complete School<br />
-            Identity &amp; Printing<br />
-            <span className="text-white/40">Solutions.</span>
-          </h2>
-          <p className="text-white/40 text-sm leading-relaxed max-w-xs mb-10">
-            Design, manage, and bulk-print student ID cards with school branding, barcodes, and photo integration.
-          </p>
+        {/* Subtle grid */}
+        <div className="pointer-events-none absolute inset-0 opacity-[0.04]"
+          style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.6) 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
 
-          {/* ID card mockup — no emojis, pure CSS */}
-          <div className="w-72 rounded-xl overflow-hidden border border-white/10 shadow-2xl">
-            {/* card header stripe */}
-            <div className="h-1.5 w-full bg-white/20" />
-            <div className="bg-white/5 px-5 py-4">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-5 h-5 bg-white/20 rounded flex items-center justify-center shrink-0">
-                  <span className="text-white text-[0.5rem] font-black">G</span>
-                </div>
-                <div>
-                  <p className="text-white text-[0.6rem] font-bold uppercase tracking-widest leading-none">Gographic School</p>
-                  <p className="text-white/30 text-[0.5rem] uppercase tracking-widest mt-0.5">Student Identity Card</p>
-                </div>
-              </div>
+        {/* Content */}
+        <div className="relative flex flex-col h-full px-12 py-10 xl:px-16 xl:py-12">
 
-              <div className="flex gap-4 items-start">
-                {/* photo box */}
-                <div className="w-14 h-16 rounded-lg bg-white/10 border border-white/10 shrink-0 flex items-center justify-center">
-                  <div className="w-6 h-6 rounded-full bg-white/20 mb-1" />
-                </div>
-                <div className="flex-1 pt-1 space-y-1.5">
-                  <div className="h-2.5 w-24 bg-white/70 rounded-sm" />
-                  <div className="h-2 w-16 bg-white/30 rounded-sm" />
-                  <div className="h-1.5 w-20 bg-white/20 rounded-sm mt-2" />
-                  <div className="h-1.5 w-14 bg-white/20 rounded-sm" />
-                </div>
-              </div>
+          {/* Logo */}
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-white/10 border border-white/10 flex items-center justify-center backdrop-blur-sm">
+              <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" />
+              </svg>
+            </div>
+            <span className="text-white font-black text-lg tracking-tight">Gographic</span>
+          </div>
 
-              {/* barcode */}
-              <div className="mt-4 flex items-end gap-2">
-                <div className="flex gap-px items-end">
-                  {[2,1,3,1,2,1,1,3,2,1,2,1,3,1,2,1,1,2,3,1,2,1,1,2].map((w, i) => (
-                    <div key={i} style={{ width: w, height: 16 + (i % 3) * 2, background: 'rgba(255,255,255,0.5)' }} />
-                  ))}
+          {/* Hero text */}
+          <div className="my-auto">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 mb-8">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-white/50 text-[0.65rem] font-bold uppercase tracking-widest">School ID Card Management</span>
+            </div>
+
+            <h2 className="text-4xl xl:text-5xl font-black text-white leading-[1.08] tracking-tight mb-6">
+              Complete Student<br />
+              Identity &amp;<br />
+              <span className="bg-gradient-to-r from-sky-400 via-violet-400 to-emerald-400 bg-clip-text text-transparent">
+                Printing Solutions.
+              </span>
+            </h2>
+
+            <p className="text-white/40 text-sm leading-relaxed max-w-sm mb-10">
+              Design, manage, and bulk-print student ID cards with school branding, photo integration, and real-time tracking.
+            </p>
+
+            {/* Feature list */}
+            <ul className="space-y-3 mb-12">
+              {FEATURES.map((f, i) => (
+                <li key={i} className="flex items-center gap-3">
+                  <span className="w-5 h-5 rounded-full bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center shrink-0">
+                    <svg className="w-2.5 h-2.5 text-emerald-400" fill="none" viewBox="0 0 12 12" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M2 6l3 3 5-5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </span>
+                  <span className="text-white/50 text-xs font-medium">{f}</span>
+                </li>
+              ))}
+            </ul>
+
+            {/* Stats */}
+            <div className="grid grid-cols-3 gap-4">
+              {STATS.map(({ icon, value, label }) => (
+                <div key={label} className="p-4 rounded-2xl bg-white/5 border border-white/8 backdrop-blur-sm">
+                  <div className="text-white/30 mb-2">{icon}</div>
+                  <p className="text-white font-black text-lg leading-none mb-1">{value}</p>
+                  <p className="text-white/30 text-[0.6rem] font-medium leading-snug">{label}</p>
                 </div>
-                <p className="text-white/20 text-[0.45rem] font-mono">GEO-2024-042</p>
-              </div>
+              ))}
             </div>
           </div>
-        </div>
 
-
-
-        {/* Footer — trusted by */}
-        <div className="shrink-0 mt-auto">
-          <p className="text-white/20 text-[0.6rem] font-semibold uppercase tracking-widest mb-3">
-            Trusted by schools across India
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {SCHOOLS.map(name => (
-              <span key={name} className="text-[0.6rem] font-medium text-white/30 border border-white/10 px-2.5 py-1 rounded-md">
-                {name}
-              </span>
-            ))}
+          {/* Footer */}
+          <div className="shrink-0 mt-auto pt-8 border-t border-white/5">
+            <p className="text-white/15 text-[0.6rem] font-medium">
+              © {new Date().getFullYear()} Gographic · School Identity &amp; Printing Solutions
+            </p>
           </div>
-          <p className="text-white/15 text-[0.6rem] font-medium mt-6">
-            © {new Date().getFullYear()} Gographic. All rights reserved.
-          </p>
         </div>
       </div>
 
-      {/* RIGHT — login form */}
-      <div className="flex-1 lg:flex-none lg:w-[420px] flex flex-col h-full overflow-y-auto lg:overflow-hidden border-l border-slate-100">
+      {/* ── RIGHT — Login form ── */}
+      <div className="flex-1 lg:flex-none lg:w-[480px] flex flex-col min-h-[100dvh] lg:min-h-0 lg:h-auto border-l border-slate-100">
 
-        {/* Mobile top bar */}
-        <div className="lg:hidden flex items-center gap-2.5 px-6 pt-8 pb-6 shrink-0 border-b border-slate-100">
-          <div className="w-7 h-7 bg-[#0a0a0a] rounded flex items-center justify-center shrink-0">
-            <span className="text-white font-black text-sm leading-none">G</span>
+        {/* Mobile header */}
+        <div className="lg:hidden flex items-center justify-between px-6 pt-10 pb-6 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-slate-950 flex items-center justify-center">
+              <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" />
+              </svg>
+            </div>
+            <span className="text-slate-900 font-black text-lg tracking-tight">Gographic</span>
           </div>
-          <span className="text-slate-900 font-bold text-base tracking-tight">Gographic</span>
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-100">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <span className="text-emerald-600 text-[0.6rem] font-black uppercase tracking-widest">Secure</span>
+          </div>
         </div>
 
-        {/* Form centered */}
-        <div className="flex-1 flex items-center justify-center px-8 py-10 lg:px-12">
-          <div className="w-full max-w-xs">
-
+        {/* Form area */}
+        <div className="flex-1 flex items-center justify-center px-6 py-10 sm:px-12">
+          <div
+            className="w-full max-w-sm"
+            style={{
+              opacity: mounted ? 1 : 0,
+              transform: mounted ? 'translateY(0)' : 'translateY(20px)',
+              transition: 'opacity 0.5s ease, transform 0.5s ease',
+            }}
+          >
+            {/* Heading */}
             <div className="mb-8">
-              <p className="text-[0.6rem] font-semibold uppercase tracking-[0.2em] text-slate-400 mb-3">
-                School Portal
-              </p>
-              <h1 className="text-2xl font-black text-slate-900 tracking-tight mb-1.5">Sign in</h1>
-              <p className="text-slate-400 text-sm">
-                Enter your credentials to access the portal.
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200 mb-5">
+                <FiShield className="w-3 h-3 text-slate-400" />
+                <span className="text-slate-500 text-[0.65rem] font-black uppercase tracking-widest">School Portal</span>
+              </div>
+              <h1 className="text-3xl font-black text-slate-900 tracking-tight leading-tight mb-2">
+                Welcome back
+              </h1>
+              <p className="text-slate-400 text-sm font-medium">
+                Sign in to access your dashboard
               </p>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="space-y-5">
 
+              {/* Email */}
               <div>
-                <label className="block text-[0.65rem] font-bold uppercase tracking-widest text-slate-400 mb-1.5">
-                  User Name
+                <label className="block text-[0.65rem] font-black uppercase tracking-widest text-slate-400 mb-2">
+                  Email / Username
                 </label>
-                <div className="relative">
-                  <FiUser className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-300" />
+                <div className="relative group">
+                  <FiMail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 group-focus-within:text-slate-500 transition-colors" />
                   <input
                     type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="Enter your username"
+                    value={email}
+                    onChange={e => { setEmail(e.target.value); setMessage(null); }}
+                    placeholder="you@school.edu"
                     required
-                    className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-slate-200 text-slate-900 text-sm placeholder-slate-300 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100 bg-white"
+                    autoComplete="username"
+                    className="w-full pl-11 pr-4 py-3.5 rounded-xl border border-slate-200 text-slate-900 text-sm placeholder-slate-300 outline-none transition-all duration-200 focus:border-slate-900 focus:ring-4 focus:ring-slate-900/5 bg-white hover:border-slate-300"
                   />
                 </div>
               </div>
 
+              {/* Password */}
               <div>
-                <label className="block text-[0.65rem] font-bold uppercase tracking-widest text-slate-400 mb-1.5">
+                <label className="block text-[0.65rem] font-black uppercase tracking-widest text-slate-400 mb-2">
                   Password
                 </label>
-                <div className="relative">
-                  <FiLock className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-300" />
+                <div className="relative group">
+                  <FiLock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 group-focus-within:text-slate-500 transition-colors" />
                   <input
-                    type="password"
+                    type={showPwd ? 'text' : 'password'}
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={e => { setPassword(e.target.value); setMessage(null); }}
                     placeholder="Enter your password"
                     required
-                    className="w-full pl-9 pr-4 py-2.5 rounded-lg border border-slate-200 text-slate-900 text-sm placeholder-slate-300 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100 bg-white"
+                    autoComplete="current-password"
+                    className="w-full pl-11 pr-12 py-3.5 rounded-xl border border-slate-200 text-slate-900 text-sm placeholder-slate-300 outline-none transition-all duration-200 focus:border-slate-900 focus:ring-4 focus:ring-slate-900/5 bg-white hover:border-slate-300"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPwd(v => !v)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-600 transition-colors p-0.5"
+                    tabIndex={-1}
+                    aria-label={showPwd ? 'Hide password' : 'Show password'}
+                  >
+                    {showPwd ? <FiEyeOff className="w-4 h-4" /> : <FiEye className="w-4 h-4" />}
+                  </button>
                 </div>
               </div>
 
+              {/* Error message */}
               {message && (
-                <p className="text-xs font-semibold text-rose-600 bg-rose-50 px-3 py-2.5 rounded-lg border border-rose-100">
-                  {message}
-                </p>
+                <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-rose-50 border border-rose-100">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 mt-1.5 shrink-0" />
+                  <p className="text-xs font-bold text-rose-600 leading-relaxed">{message}</p>
+                </div>
               )}
 
+              {/* Submit */}
               <button
                 type="submit"
-                disabled={loading}
-                className="w-full flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-bold text-white bg-[#0a0a0a] hover:bg-black transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed mt-1"
+                disabled={loading || !email || !password}
+                className="w-full relative flex items-center justify-center gap-2.5 rounded-xl px-5 py-3.5 text-sm font-black text-white bg-slate-950 hover:bg-slate-800 transition-all duration-200 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-slate-900/20 mt-2"
               >
-                {loading
-                  ? <span className="w-3.5 h-3.5 rounded-full border-2 border-white/20 border-t-white animate-spin" />
-                  : <FiLogIn className="w-3.5 h-3.5" />}
-                {loading ? 'Signing in…' : 'Sign In'}
+                {loading ? (
+                  <>
+                    <span className="w-4 h-4 rounded-full border-2 border-white/20 border-t-white animate-spin" />
+                    Signing in…
+                  </>
+                ) : (
+                  <>
+                    Sign In
+                    <FiArrowRight className="w-4 h-4" />
+                  </>
+                )}
               </button>
             </form>
 
-            <p className="text-[0.6rem] text-slate-300 font-medium mt-8">
+            {/* Divider */}
+            <div className="flex items-center gap-4 my-8">
+              <div className="flex-1 h-px bg-slate-100" />
+              <span className="text-[0.6rem] font-black text-slate-300 uppercase tracking-widest">Secured by</span>
+              <div className="flex-1 h-px bg-slate-100" />
+            </div>
+
+            {/* Security badges */}
+            <div className="flex items-center justify-center gap-3">
+              {[
+                { label: 'SHA-256 Hash', color: 'bg-slate-100 text-slate-400 border-slate-200' },
+                { label: 'Role-based Access', color: 'bg-slate-100 text-slate-400 border-slate-200' },
+                { label: 'Audit Logs', color: 'bg-slate-100 text-slate-400 border-slate-200' },
+              ].map(b => (
+                <span key={b.label} className={`text-[0.55rem] font-black uppercase tracking-wide px-2.5 py-1 rounded-full border ${b.color}`}>
+                  {b.label}
+                </span>
+              ))}
+            </div>
+
+            {/* Mobile stats */}
+            <div className="lg:hidden mt-10 grid grid-cols-3 gap-3">
+              {STATS.map(({ value, label }) => (
+                <div key={label} className="text-center p-3 rounded-xl bg-slate-50 border border-slate-100">
+                  <p className="text-slate-900 font-black text-base leading-none mb-1">{value}</p>
+                  <p className="text-slate-400 text-[0.55rem] font-medium leading-snug">{label}</p>
+                </div>
+              ))}
+            </div>
+
+            <p className="lg:hidden text-center text-[0.6rem] text-slate-300 font-medium mt-8">
               © {new Date().getFullYear()} Gographic · School Identity &amp; Printing Solutions
             </p>
-
           </div>
+        </div>
+
+        {/* Desktop footer inside right panel */}
+        <div className="hidden lg:block shrink-0 px-12 pb-8 text-[0.6rem] text-slate-300 font-medium">
+          © {new Date().getFullYear()} Gographic · All rights reserved
         </div>
       </div>
     </div>
