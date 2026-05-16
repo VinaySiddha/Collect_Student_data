@@ -159,20 +159,23 @@ export default function StudentTable({ students, loading, onDelete, onEdit, coll
         {/* Table */}
         <div className="overflow-hidden rounded border border-slate-200/80 bg-white shadow-sm">
           <div className="overflow-x-auto">
-            <table className="border-separate border-spacing-0 text-left text-sm text-slate-900" style={{ minWidth: '1400px' }}>
+            <table className="border-separate border-spacing-0 text-left text-sm text-slate-900" style={{ minWidth: '1800px' }}>
               <thead>
                 <tr>
                   <Th className="sticky left-0 z-10 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">#</Th>
                   <Th>Photo</Th>
                   <Th>Name</Th>
-                  <Th>Parentage</Th>
+                  <Th>Father/Mother Name</Th>
                   <Th>Contact</Th>
                   <Th>Roll No.</Th>
-                  <Th>Reg. ID</Th>
-                  <Th>Class</Th>
+                  <Th>Admission No.</Th>
+                  <Th>Class/Section</Th>
                   <Th>Course</Th>
                   <Th>Year</Th>
+                  <Th>DOB</Th>
                   <Th>Blood Group</Th>
+                  <Th>%</Th>
+                  <Th>Address</Th>
                   <Th>Email</Th>
                   <Th>Bus Stop</Th>
                   <Th>College</Th>
@@ -212,7 +215,7 @@ export default function StudentTable({ students, loading, onDelete, onEdit, coll
                       <p className="font-black text-slate-900 whitespace-nowrap">{s.name}</p>
                     </Td>
 
-                    {/* Parentage */}
+                    {/* Father/Mother Name */}
                     <Td>
                       <p className="text-slate-600 font-medium whitespace-nowrap">{s.parentage || <span className="text-slate-300">—</span>}</p>
                     </Td>
@@ -227,12 +230,12 @@ export default function StudentTable({ students, loading, onDelete, onEdit, coll
                       <p className="text-slate-600 font-medium whitespace-nowrap">{s.rollNo || <span className="text-slate-300">—</span>}</p>
                     </Td>
 
-                    {/* Reg. ID */}
+                    {/* Admission No. */}
                     <Td>
                       <p className="text-cyan-600 font-black text-xs tracking-widest whitespace-nowrap">{s.studentId || <span className="text-slate-300 tracking-normal">—</span>}</p>
                     </Td>
 
-                    {/* Class */}
+                    {/* Class/Section */}
                     <Td>
                       <p className="text-slate-600 font-medium whitespace-nowrap">{s.studentClass || <span className="text-slate-300">—</span>}</p>
                     </Td>
@@ -247,11 +250,26 @@ export default function StudentTable({ students, loading, onDelete, onEdit, coll
                       <p className="text-slate-600 font-medium whitespace-nowrap">{s.year || <span className="text-slate-300">—</span>}</p>
                     </Td>
 
+                    {/* DOB */}
+                    <Td>
+                      <p className="text-slate-600 font-medium whitespace-nowrap">{s.dob || <span className="text-slate-300">—</span>}</p>
+                    </Td>
+
                     {/* Blood Group */}
                     <Td>
                       {s.bloodGroup
                         ? <span className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-600 text-xs font-black border border-rose-100">{s.bloodGroup}</span>
                         : <span className="text-slate-300 text-xs">—</span>}
+                    </Td>
+
+                    {/* Percentage */}
+                    <Td>
+                      <p className="text-slate-600 font-medium whitespace-nowrap">{s.percentage ? `${s.percentage}%` : <span className="text-slate-300">—</span>}</p>
+                    </Td>
+
+                    {/* Address */}
+                    <Td>
+                      <p className="text-slate-600 font-medium max-w-[160px] truncate" title={s.address}>{s.address || <span className="text-slate-300">—</span>}</p>
                     </Td>
 
                     {/* Email */}
@@ -307,7 +325,7 @@ export default function StudentTable({ students, loading, onDelete, onEdit, coll
 
                 {filteredStudents.length === 0 && (
                   <tr>
-                    <td colSpan={18} className="px-6 py-16 text-center">
+                    <td colSpan={21} className="px-6 py-16 text-center">
                       <div className="flex flex-col items-center gap-3">
                         <div className="w-12 h-12 bg-slate-50 rounded flex items-center justify-center text-xl">🔍</div>
                         <div>

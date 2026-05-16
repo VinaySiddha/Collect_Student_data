@@ -47,6 +47,7 @@ export default function FacultyAdminRegisterPage() {
   const [showDrafts,      setShowDrafts]      = useState(false);
   const [draftSaving,     setDraftSaving]     = useState(false);
   const [bulkPhotoMap,    setBulkPhotoMap]    = useState<Map<string, string>>(new Map());
+  const [previewRecords,  setPreviewRecords]  = useState<StudentRecord[] | null>(null);
   const [cameraOpen,      setCameraOpen]      = useState(false);
   const [facingMode,      setFacingMode]      = useState<'user' | 'environment'>('user');
 
@@ -358,17 +359,19 @@ export default function FacultyAdminRegisterPage() {
   };
 
   const downloadTemplate = () => {
-    const ws = XLSX.utils.json_to_sheet([
-      { Name: 'Raju Kumar',   Parentage: 'S/O Ram Kumar',    'Student ID': 'STU-001', 'Roll No.': '01', Class: 'B.Tech 1st Year', Course: 'Computer Science', Year: '2024-25', Email: 'raju@example.com',  Phone: '9876543210', 'Bus Stop': 'Main Bus Stand', 'Blood Group': 'O+' },
-      { Name: 'Priya Sharma', Parentage: 'D/O Mohan Sharma', 'Student ID': 'STU-002', 'Roll No.': '02', Class: 'B.Tech 1st Year', Course: 'Electronics',       Year: '2024-25', Email: 'priya@example.com', Phone: '9876543211', 'Bus Stop': 'City Center',    'Blood Group': 'A+' },
-    ]);
-    ws['!cols'] = [20,22,14,10,18,20,10,26,14,18,12].map(w => ({ wch: w }));
+    const rows = [
+      { Name: 'Raju Kumar',   'Father/Mother Name': 'S/O Ram Kumar',    'Admission Number': 'ADM-001', 'Roll No.': '01', 'Class/Section': 'B.Tech 1st Year', Course: 'Computer Science', Year: '2024-25', 'Date of Birth': '2002-03-10', 'Blood Group': 'O+', Address: '12 Gandhi Nagar, City', Percentage: '78.5', Email: 'raju@example.com',  Phone: '9876543210', 'Bus Stop': 'Main Bus Stand' },
+      { Name: 'Priya Sharma', 'Father/Mother Name': 'D/O Mohan Sharma', 'Admission Number': 'ADM-002', 'Roll No.': '02', 'Class/Section': 'B.Tech 1st Year', Course: 'Electronics',       Year: '2024-25', 'Date of Birth': '2003-07-25', 'Blood Group': 'A+', Address: '34 Nehru Road, Town',  Percentage: '88.0', Email: 'priya@example.com', Phone: '9876543211', 'Bus Stop': 'City Center'    },
+    ];
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const cols = Object.keys(rows[0]);
+    ws['!cols'] = cols.map(k => ({ wch: Math.max(k.length, ...rows.map(r => String(r[k as keyof typeof r] ?? '').length)) + 2 }));
     const wbOut = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wbOut, ws, 'Students');
     XLSX.writeFile(wbOut, 'student-import-template.xlsx');
   };
 
-  const handleExcelUpload = async () => {
+  const parseExcelForPreview = async () => {
     if (!excelFile) { showToast('Select an Excel file first.', 'error'); return; }
     setImportLoading(true);
     try {
@@ -381,45 +384,61 @@ export default function FacultyAdminRegisterPage() {
       const norm = headers.map(h => String(h ?? '').trim().toLowerCase());
       const dataRows = values.filter(r => Array.isArray(r) && r.some(v => String(v ?? '').trim()));
       if (dataRows.length === 0) { showToast('No data rows found in the file.', 'error'); setImportLoading(false); return; }
-      const records: StudentRecord[] = dataRows.map(row => {
+      const records: StudentRecord[] = dataRows.map((row, i) => {
         const e = Array.isArray(row)
-          ? row.reduce<Record<string, string>>((acc, v, i) => { acc[norm[i] ?? ''] = String(v ?? '').trim(); return acc; }, {})
+          ? row.reduce<Record<string, string>>((acc, v, idx) => { acc[norm[idx] ?? ''] = String(v ?? '').trim(); return acc; }, {})
           : {};
+        const rollNo  = e['roll no.'] || e['roll no'] || e.rollno || undefined;
+        const admNo   = e['admission number'] || e['student id'] || e.studentid || undefined;
+        const byIndex = bulkPhotoMap.get(String(i + 1));
+        const byRoll  = rollNo ? bulkPhotoMap.get(rollNo.toLowerCase().trim()) : undefined;
+        const byAdm   = admNo  ? bulkPhotoMap.get(admNo.toLowerCase().trim())  : undefined;
+        const byName  = e.name ? bulkPhotoMap.get(e.name.toLowerCase().trim()) : undefined;
+        const photo   = byIndex ?? byRoll ?? byAdm ?? byName;
         return {
-          id:           `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          id:           `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`,
           college:      user?.college || '',
           name:         e.name        || 'Unnamed Student',
-          parentage:    e.parentage   || undefined,
-          studentId:    e['student id']  || e.studentid   || undefined,
-          rollNo:       e['roll no.']    || e['roll no']   || e.rollno   || undefined,
-          studentClass: e.class          || e['class']     || undefined,
+          parentage:    e['father/mother name'] || e.parentage   || undefined,
+          studentId:    admNo,
+          rollNo,
+          studentClass: e['class/section']      || e.class        || undefined,
           course:       e.course         || undefined,
           year:         e.year           || undefined,
+          dob:          e['date of birth'] || e.dob || undefined,
+          bloodGroup:   e['blood group'] || undefined,
+          address:      e.address        || undefined,
+          percentage:   e.percentage     || undefined,
           email:        e.email          || undefined,
           phone:        e.phone          || '',
           busStop:      e['bus stop']    || undefined,
-          bloodGroup:   e['blood group'] || undefined,
+          photo:        photo            || undefined,
           createdBy:    user?.name || user?.email || 'Imported',
           createdAt:    new Date().toISOString(),
         };
       });
-      const recordsWithPhotos = records.map((record, i) => {
-        const byIndex = bulkPhotoMap.get(String(i + 1));
-        const byRoll  = record.rollNo ? bulkPhotoMap.get(record.rollNo.toLowerCase().trim()) : undefined;
-        const photo   = byIndex ?? byRoll;
-        return photo ? { ...record, photo } : record;
-      });
+      setPreviewRecords(records);
+    } catch {
+      showToast('Failed to parse Excel file. Make sure it is a valid .xlsx file.', 'error');
+    }
+    setImportLoading(false);
+  };
+
+  const handleConfirmImport = async () => {
+    if (!previewRecords) return;
+    setImportLoading(true);
+    try {
       let saved = 0;
-      for (const record of recordsWithPhotos) {
+      for (const record of previewRecords) {
         const result = await addStudentToDb(record);
         if (result.success) saved++;
       }
-      setStudents(prev => [...recordsWithPhotos.slice(0, saved), ...prev]);
+      setStudents(prev => [...previewRecords.slice(0, saved), ...prev]);
       setSubmissionCount(c => c + saved);
-      setExcelFile(null); setBulkPhotoMap(new Map()); setBulkImportOpen(false);
-      showToast(`${saved} of ${records.length} records imported successfully.`, 'success');
+      setExcelFile(null); setBulkPhotoMap(new Map()); setPreviewRecords(null); setBulkImportOpen(false);
+      showToast(`${saved} of ${previewRecords.length} records imported successfully.`, 'success');
     } catch {
-      showToast('Failed to parse Excel file. Make sure it is a valid .xlsx file.', 'error');
+      showToast('Import failed. Please try again.', 'error');
     }
     setImportLoading(false);
   };
@@ -674,69 +693,152 @@ export default function FacultyAdminRegisterPage() {
 
       {/* Bulk Import Modal */}
       {bulkImportOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4">
-          <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-2xl w-full max-w-md max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4" onClick={importLoading ? undefined : () => { setBulkImportOpen(false); setExcelFile(null); setBulkPhotoMap(new Map()); setPreviewRecords(null); }}>
+          <div className={`bg-white rounded-t-2xl sm:rounded-xl shadow-2xl w-full max-h-[92vh] flex flex-col transition-all duration-300 ${previewRecords ? 'sm:max-w-5xl' : 'sm:max-w-md'}`} onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
               <div>
                 <h2 className="text-base font-black text-slate-900">Bulk Import</h2>
-                <p className="text-xs text-slate-500 font-medium mt-0.5">Import multiple students from an Excel sheet</p>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  {previewRecords ? `Review ${previewRecords.length} parsed records before saving` : 'Import multiple students from an Excel sheet'}
+                </p>
               </div>
-              <button onClick={() => { setBulkImportOpen(false); setExcelFile(null); setBulkPhotoMap(new Map()); }} disabled={importLoading} className="w-8 h-8 flex items-center justify-center rounded text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition disabled:opacity-30 disabled:pointer-events-none">
+              <button onClick={() => { setBulkImportOpen(false); setExcelFile(null); setBulkPhotoMap(new Map()); setPreviewRecords(null); }} disabled={importLoading} className="w-8 h-8 flex items-center justify-center rounded text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition disabled:opacity-30 disabled:pointer-events-none">
                 <FiX className="w-4 h-4" />
               </button>
             </div>
-            <div className="overflow-y-auto flex-1 p-5 space-y-5">
-              <div className="rounded-lg border border-slate-200 p-4 space-y-3">
-                <p className="text-[0.65rem] font-black uppercase tracking-widest text-slate-400">Step 1 — Download template</p>
-                <p className="text-xs text-slate-500 font-medium">Required columns: <span className="font-black text-slate-700">Name, Parentage, Phone</span>. All others are optional.</p>
-                <button onClick={downloadTemplate} className="w-full flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-black py-2.5 rounded-lg hover:bg-violet-50 hover:border-violet-300 hover:text-violet-600 transition text-sm">
-                  <FiDownload className="w-4 h-4" /> Download Excel Template
-                </button>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-4 space-y-3">
-                <p className="text-[0.65rem] font-black uppercase tracking-widest text-slate-400">Step 2 — Upload your sheet</p>
-                <div className="relative group">
-                  <input type="file" accept=".xlsx,.xls" onChange={e => setExcelFile(e.target.files?.[0] ?? null)} className="opacity-0 absolute inset-0 w-full h-full z-10 cursor-pointer" disabled={importLoading} />
-                  <div className={`p-6 rounded-lg border-2 border-dashed transition text-center space-y-2 ${excelFile ? 'border-violet-400 bg-violet-50' : 'border-slate-200 group-hover:border-violet-400 bg-slate-50/50'}`}>
-                    <FiUpload className={`w-6 h-6 mx-auto transition ${excelFile ? 'text-violet-500' : 'text-slate-300 group-hover:text-violet-400'}`} />
-                    <p className="text-sm font-bold text-slate-600">{excelFile ? excelFile.name : 'Drop Excel file here'}</p>
-                    <p className="text-xs text-slate-400">{excelFile ? 'Click to change file' : 'Click to browse — .xlsx or .xls'}</p>
+
+            {previewRecords ? (
+              /* ── PREVIEW VIEW ── */
+              <>
+                <div className="px-5 py-3 border-b border-slate-100 shrink-0 flex items-center justify-between bg-slate-50">
+                  <div className="flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-full bg-emerald-100 border border-emerald-200 flex items-center justify-center shrink-0">
+                      <svg className="w-2.5 h-2.5 text-emerald-600" fill="none" viewBox="0 0 12 12" stroke="currentColor" strokeWidth="2.5"><path d="M2 6l3 3 5-5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    </span>
+                    <p className="text-xs font-black text-slate-700">{previewRecords.length} record{previewRecords.length !== 1 ? 's' : ''} parsed</p>
+                    <span className="text-slate-300">·</span>
+                    <p className="text-xs text-slate-400 font-medium">{previewRecords.filter(r => r.photo).length} with photo</p>
                   </div>
+                  <button onClick={() => setPreviewRecords(null)} className="text-xs font-black text-slate-400 hover:text-slate-700 transition">← Back</button>
                 </div>
-                {excelFile && <button onClick={() => setExcelFile(null)} className="text-xs text-rose-500 hover:text-rose-700 font-bold transition">Remove file</button>}
-              </div>
-              <div className="rounded-lg border border-slate-200 p-4 space-y-3">
-                <p className="text-[0.65rem] font-black uppercase tracking-widest text-slate-400">Step 3 — Student Photos <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span></p>
-                <p className="text-xs text-slate-500 font-medium">
-                  Name each photo by <span className="font-black text-slate-700">row number</span> (1.jpg, 2.jpg…) or by <span className="font-black text-slate-700">Roll No.</span> (42.jpg…).
-                </p>
-                <div className="relative group">
-                  <input type="file" accept="image/*" multiple onChange={e => handleBulkPhotos(e.target.files)} className="opacity-0 absolute inset-0 w-full h-full z-10 cursor-pointer" disabled={importLoading} />
-                  <div className={`p-5 rounded-lg border-2 border-dashed transition text-center space-y-2 ${bulkPhotoMap.size > 0 ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 group-hover:border-violet-400 bg-slate-50/50'}`}>
-                    <FiCamera className={`w-5 h-5 mx-auto transition ${bulkPhotoMap.size > 0 ? 'text-emerald-500' : 'text-slate-300 group-hover:text-violet-400'}`} />
-                    <p className="text-sm font-bold text-slate-600">{bulkPhotoMap.size > 0 ? `${bulkPhotoMap.size} photo${bulkPhotoMap.size !== 1 ? 's' : ''} selected` : 'Select student photos'}</p>
+                <div className="overflow-auto flex-1">
+                  <table className="w-full text-xs border-separate border-spacing-0" style={{ minWidth: '700px' }}>
+                    <thead className="sticky top-0 bg-slate-50 z-10">
+                      <tr>
+                        {['#','Photo','Name','Father/Mother Name','Phone','Admission No.','Roll No.','Class/Section','DOB','Blood Group','Address','%','Email','Bus Stop'].map(h => (
+                          <th key={h} className="px-3 py-2.5 text-left text-[0.58rem] font-black uppercase tracking-widest text-slate-400 whitespace-nowrap border-b border-slate-200">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {previewRecords.map((r, i) => (
+                        <tr key={r.id} className="hover:bg-violet-50/30 transition">
+                          <td className="px-3 py-2.5 text-slate-400 font-black">{i + 1}</td>
+                          <td className="px-3 py-2.5">
+                            <div className="w-8 h-8 rounded overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
+                              {r.photo
+                                ? <img src={r.photo} alt={r.name} className="w-full h-full object-cover" />
+                                : <div className="w-full h-full flex items-center justify-center text-[0.45rem] text-slate-300 font-black">NO</div>}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 font-black text-slate-900 whitespace-nowrap">{r.name}</td>
+                          <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">{r.parentage || <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-2.5 text-slate-700 font-bold whitespace-nowrap">{r.phone || <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-2.5 text-cyan-600 font-black whitespace-nowrap">{r.studentId || <span className="text-slate-300 font-normal">—</span>}</td>
+                          <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">{r.rollNo || <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">{r.studentClass || <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">{r.dob || <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-2.5">
+                            {r.bloodGroup
+                              ? <span className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-600 font-black border border-rose-100">{r.bloodGroup}</span>
+                              : <span className="text-slate-300">—</span>}
+                          </td>
+                          <td className="px-3 py-2.5 text-slate-600 max-w-[120px] truncate" title={r.address}>{r.address || <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">{r.percentage ? `${r.percentage}%` : <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">{r.email || <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-2.5 text-slate-600 whitespace-nowrap">{r.busStop || <span className="text-slate-300">—</span>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="px-5 py-4 border-t border-slate-100 shrink-0 flex gap-3">
+                  <button
+                    onClick={handleConfirmImport}
+                    disabled={importLoading}
+                    className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 text-white font-black py-3 rounded-lg hover:bg-emerald-700 transition shadow-sm text-sm active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {importLoading
+                      ? <><span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Saving…</>
+                      : <><FiUpload className="w-4 h-4" /> Confirm & Import {previewRecords.length} Records</>}
+                  </button>
+                  <button onClick={() => setPreviewRecords(null)} disabled={importLoading} className="px-4 py-3 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition disabled:opacity-50">
+                    Back
+                  </button>
+                </div>
+              </>
+            ) : (
+              /* ── UPLOAD VIEW ── */
+              <>
+                <div className="overflow-y-auto flex-1 p-5 space-y-5">
+                  <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+                    <p className="text-[0.65rem] font-black uppercase tracking-widest text-slate-400">Step 1 — Download template</p>
+                    <p className="text-xs text-slate-500 font-medium">Fill in the template with student data. Required: <span className="font-black text-slate-700">Name, Father/Mother Name, Phone</span>.</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {['Name','Father/Mother Name','Admission No.','Roll No.','Class/Section','Course','Year','Date of Birth','Blood Group','Address','Percentage','Email','Phone','Bus Stop'].map(col => (
+                        <span key={col} className="text-[0.6rem] font-black px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200">{col}</span>
+                      ))}
+                    </div>
+                    <button onClick={downloadTemplate} className="w-full flex items-center justify-center gap-2 border border-slate-200 bg-slate-50 text-slate-600 font-black py-2.5 rounded-lg hover:bg-violet-50 hover:border-violet-300 hover:text-violet-600 transition text-sm">
+                      <FiDownload className="w-4 h-4" /> Download Excel Template
+                    </button>
                   </div>
+                  <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+                    <p className="text-[0.65rem] font-black uppercase tracking-widest text-slate-400">Step 2 — Upload your sheet</p>
+                    <div className="relative group">
+                      <input type="file" accept=".xlsx,.xls" onChange={e => setExcelFile(e.target.files?.[0] ?? null)} className="opacity-0 absolute inset-0 w-full h-full z-10 cursor-pointer" disabled={importLoading} />
+                      <div className={`p-6 rounded-lg border-2 border-dashed transition text-center space-y-2 ${excelFile ? 'border-violet-400 bg-violet-50' : 'border-slate-200 group-hover:border-violet-400 bg-slate-50/50'}`}>
+                        <FiUpload className={`w-6 h-6 mx-auto transition ${excelFile ? 'text-violet-500' : 'text-slate-300 group-hover:text-violet-400'}`} />
+                        <p className="text-sm font-bold text-slate-600">{excelFile ? excelFile.name : 'Drop Excel file here'}</p>
+                        <p className="text-xs text-slate-400">{excelFile ? 'Click to change file' : 'Click to browse — .xlsx or .xls'}</p>
+                      </div>
+                    </div>
+                    {excelFile && <button onClick={() => setExcelFile(null)} className="text-xs text-rose-500 hover:text-rose-700 font-bold transition">Remove file</button>}
+                  </div>
+                  <div className="rounded-lg border border-slate-200 p-4 space-y-3">
+                    <p className="text-[0.65rem] font-black uppercase tracking-widest text-slate-400">Step 3 — Student Photos <span className="normal-case tracking-normal font-medium text-slate-300">(optional)</span></p>
+                    <p className="text-xs text-slate-500 font-medium">
+                      Name each photo by <span className="font-black text-slate-700">row number</span> (1.jpg, 2.jpg…), <span className="font-black text-slate-700">Roll No.</span>, <span className="font-black text-slate-700">Admission No.</span>, or <span className="font-black text-slate-700">Student Name</span>.
+                    </p>
+                    <div className="relative group">
+                      <input type="file" accept="image/*" multiple onChange={e => handleBulkPhotos(e.target.files)} className="opacity-0 absolute inset-0 w-full h-full z-10 cursor-pointer" disabled={importLoading} />
+                      <div className={`p-5 rounded-lg border-2 border-dashed transition text-center space-y-2 ${bulkPhotoMap.size > 0 ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 group-hover:border-violet-400 bg-slate-50/50'}`}>
+                        <FiCamera className={`w-5 h-5 mx-auto transition ${bulkPhotoMap.size > 0 ? 'text-emerald-500' : 'text-slate-300 group-hover:text-violet-400'}`} />
+                        <p className="text-sm font-bold text-slate-600">{bulkPhotoMap.size > 0 ? `${bulkPhotoMap.size} photo${bulkPhotoMap.size !== 1 ? 's' : ''} selected` : 'Select student photos'}</p>
+                      </div>
+                    </div>
+                    {bulkPhotoMap.size > 0 && <button onClick={() => setBulkPhotoMap(new Map())} className="text-xs text-rose-500 hover:text-rose-700 font-bold transition">Clear photos</button>}
+                  </div>
+                  <p className="text-xs text-slate-400 font-medium px-1">
+                    The college will be set automatically to <span className="font-black text-slate-600">{user.college}</span>.
+                  </p>
                 </div>
-                {bulkPhotoMap.size > 0 && <button onClick={() => setBulkPhotoMap(new Map())} className="text-xs text-rose-500 hover:text-rose-700 font-bold transition">Clear photos</button>}
-              </div>
-              <p className="text-xs text-slate-400 font-medium px-1">
-                The college will be set automatically to <span className="font-black text-slate-600">{user.college}</span>.
-              </p>
-            </div>
-            <div className="px-5 py-4 border-t border-slate-100 flex gap-3 shrink-0">
-              <button
-                onClick={handleExcelUpload}
-                disabled={!excelFile || importLoading}
-                className="flex-1 flex items-center justify-center gap-2 bg-violet-500 text-white font-black py-3 rounded-lg hover:bg-violet-600 transition shadow-sm active:scale-95 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {importLoading
-                  ? <><span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Processing…</>
-                  : <><FiUpload className="w-4 h-4" /> Process All Records</>}
-              </button>
-              <button onClick={() => { setBulkImportOpen(false); setExcelFile(null); setBulkPhotoMap(new Map()); }} disabled={importLoading} className="px-5 py-3 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition disabled:opacity-50 disabled:pointer-events-none">
-                Cancel
-              </button>
-            </div>
+                <div className="px-5 py-4 border-t border-slate-100 flex gap-3 shrink-0">
+                  <button
+                    onClick={parseExcelForPreview}
+                    disabled={!excelFile || importLoading}
+                    className="flex-1 flex items-center justify-center gap-2 bg-violet-500 text-white font-black py-3 rounded-lg hover:bg-violet-600 transition shadow-sm active:scale-95 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {importLoading
+                      ? <><span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> Parsing…</>
+                      : <><FiUpload className="w-4 h-4" /> Preview Records</>}
+                  </button>
+                  <button onClick={() => { setBulkImportOpen(false); setExcelFile(null); setBulkPhotoMap(new Map()); setPreviewRecords(null); }} disabled={importLoading} className="px-5 py-3 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition disabled:opacity-50 disabled:pointer-events-none">
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
