@@ -22,6 +22,47 @@ export interface LoginHistory {
   createdAt: string;
 }
 
+export interface StudentAuditRow {
+  auditId: number;
+  operation: 'INSERT' | 'UPDATE' | 'DELETE';
+  snapshot: 'BEFORE' | 'AFTER';
+  changedAt: string;
+  changedBy: string | null;
+  studentId: string;
+  college: string | null;
+  name: string | null;
+  course: string | null;
+  year: string | null;
+  studentClass: string | null;
+  rollno: string | null;
+  phone: string | null;
+  hasPhoto: number | null;
+  deletedBy: string | null;
+}
+
+export interface UserAuditRow {
+  auditId: number;
+  operation: 'INSERT' | 'UPDATE' | 'DELETE';
+  snapshot: 'BEFORE' | 'AFTER';
+  changedAt: string;
+  userId: number;
+  name: string | null;
+  email: string | null;
+  role: string | null;
+  college: string | null;
+  deletedBy: string | null;
+}
+
+export interface CollegeAuditRow {
+  auditId: number;
+  operation: 'INSERT' | 'UPDATE' | 'DELETE';
+  snapshot: 'BEFORE' | 'AFTER';
+  changedAt: string;
+  collegeId: number;
+  name: string | null;
+  deletedBy: string | null;
+}
+
 export interface User {
   name: string;
   email: string;

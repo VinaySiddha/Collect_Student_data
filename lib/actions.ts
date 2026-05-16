@@ -1,9 +1,11 @@
 'use server';
 
-import { dbExecute } from './db';
+import { dbExecute, connExecute, withTransaction, DbConnection } from './db';
 import { User, StudentRecord, UserRole, DbUser, DraftRecord, AuditLog, LoginHistory } from './types';
 import { RowDataPacket } from 'mysql2';
 import { headers } from 'next/headers';
+import { setSessionCookie, clearSessionCookie, getSessionUser } from './session';
+import { requireAuth, requireAdmin, requireAnyFaculty } from './auth';
 
 function nowIST(): string {
   return new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Kolkata' }).replace('T', ' ');
@@ -96,19 +98,37 @@ export async function loginUser(email: string, passwordHash: string) {
     );
     if (rows.length === 0) return { success: false, message: 'Invalid email or password.' };
     const u = rows[0] as RowDataPacket;
-    // Record login history (non-blocking)
     const { ip, ua } = await getRequestMeta();
     dbExecute(
       'INSERT INTO login_history (user_email, user_name, ip_address, user_agent, created_at) VALUES (?, ?, ?, ?, ?)',
       [emailClean.toLowerCase(), u.name ?? email, ip, ua, nowIST()]
     ).catch(() => {});
+    // Set httpOnly session cookie
+    await setSessionCookie({
+      id:      u.id as number,
+      email:   (u.email as string).toLowerCase(),
+      name:    u.name as string,
+      role:    u.role as import('./types').UserRole,
+      college: (u.college as string | null) ?? null,
+    });
     return { success: true, message: 'Login successful.', user: rows[0] as User };
   } catch {
     return { success: false, message: 'Database connection failed.' };
   }
 }
 
+/** Returns the currently logged-in user from the session cookie, or null. */
+export async function getMe() {
+  return getSessionUser();
+}
+
+/** Clears the session cookie — call this on logout. */
+export async function logoutAction() {
+  await clearSessionCookie();
+}
+
 export async function registerUser(name: string, email: string, passwordHash: string, role: UserRole, college?: string) {
+  await requireAdmin();
   const nameClean  = t(name);
   const emailClean = t(email);
   if (!nameClean)  return { success: false, message: 'Name is required.' };
@@ -123,10 +143,14 @@ export async function registerUser(name: string, email: string, passwordHash: st
     if (existing.length > 0) return { success: false, message: 'An account with this email already exists.' };
 
     const collegeId = await getCollegeId(college);
-    await dbExecute(
-      'INSERT INTO users (name, email, password, role, college_id) VALUES (?, ?, ?, ?, ?)',
-      [nameClean, emailClean.toLowerCase(), passwordHash, role, collegeId]
-    );
+    await withTransaction(async (conn) => {
+      await connExecute(conn,
+        'INSERT INTO users (name, email, password, role, college_id) VALUES (?, ?, ?, ?, ?)',
+        [nameClean, emailClean!.toLowerCase(), passwordHash, role, collegeId]
+      );
+      const [newRow] = await connExecute<RowDataPacket[]>(conn, 'SELECT id FROM users WHERE email = ?', [emailClean!.toLowerCase()]);
+      if (newRow[0]) await logUserAudit('INSERT', null, { id: newRow[0].id, name: nameClean!, email: emailClean!.toLowerCase(), role, college_id: collegeId }, conn);
+    });
     return { success: true, message: 'Registration complete. Welcome!', user: { name: nameClean, email: emailClean, password: passwordHash, role, college } as User };
   } catch (error) {
     console.error('Registration error:', error);
@@ -134,9 +158,76 @@ export async function registerUser(name: string, email: string, passwordHash: st
   }
 }
 
+// ── Audit helpers ──────────────────────────────────────────────────────────────
+
+type Snapshot = 'BEFORE' | 'AFTER';
+
+type UserAuditRow = { id: number; name: string; email: string; role: string; college_id?: number | null; deleted_at?: string | null; deleted_by?: string | null };
+type CollegeAuditRow = { id: number; name: string; deleted_at?: string | null; deleted_by?: string | null; created_at?: string | null };
+
+function insertStudentAuditRow(op: 'INSERT' | 'UPDATE' | 'DELETE', snapshot: Snapshot, s: StudentRecord, conn: DbConnection) {
+  return connExecute(
+    conn,
+    `INSERT INTO student_audit
+       (operation, snapshot, changed_at, changed_by, student_id, college, name, parentage,
+        studentid, rollno, studentclass, course, year, email, phone, busstop,
+        bloodgroup, dob, address, percentage, has_photo, createdby, createdat,
+        deleted_by, deleted_at)
+     VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      op, snapshot,
+      s.createdBy ?? null,
+      s.id, s.college, s.name,
+      s.parentage ?? null, s.studentId ?? null, s.rollNo ?? null,
+      s.studentClass ?? null, s.course ?? null, s.year ?? null,
+      s.email ?? null, s.phone, s.busStop ?? null, s.bloodGroup ?? null,
+      s.dob ?? null, s.address ?? null, s.percentage ?? null,
+      s.photo && s.photo.length > 0 ? 1 : 0,
+      s.createdBy ?? null, s.createdAt ?? null,
+      s.deletedBy ?? null, null,
+    ]
+  );
+}
+
+async function logStudentAudit(op: 'INSERT' | 'UPDATE' | 'DELETE', before: StudentRecord | null, after: StudentRecord | null, conn: DbConnection) {
+  if (before) await insertStudentAuditRow(op, 'BEFORE', before, conn);
+  if (after)  await insertStudentAuditRow(op, 'AFTER',  after,  conn);
+}
+
+function insertUserAuditRow(op: 'INSERT' | 'UPDATE' | 'DELETE', snapshot: Snapshot, u: UserAuditRow, conn: DbConnection) {
+  return connExecute(
+    conn,
+    `INSERT INTO user_audit
+       (operation, snapshot, changed_at, user_id, name, email, role, college_id, deleted_at, deleted_by)
+     VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?)`,
+    [op, snapshot, u.id, u.name, u.email, u.role, u.college_id ?? null, u.deleted_at ?? null, u.deleted_by ?? null]
+  );
+}
+
+async function logUserAudit(op: 'INSERT' | 'UPDATE' | 'DELETE', before: UserAuditRow | null, after: UserAuditRow | null, conn: DbConnection) {
+  if (before) await insertUserAuditRow(op, 'BEFORE', before, conn);
+  if (after)  await insertUserAuditRow(op, 'AFTER',  after,  conn);
+}
+
+function insertCollegeAuditRow(op: 'INSERT' | 'UPDATE' | 'DELETE', snapshot: Snapshot, c: CollegeAuditRow, conn: DbConnection) {
+  return connExecute(
+    conn,
+    `INSERT INTO college_audit
+       (operation, snapshot, changed_at, college_id, name, deleted_at, deleted_by, created_at)
+     VALUES (?, ?, NOW(), ?, ?, ?, ?, ?)`,
+    [op, snapshot, c.id, c.name, c.deleted_at ?? null, c.deleted_by ?? null, c.created_at ?? null]
+  );
+}
+
+async function logCollegeAudit(op: 'INSERT' | 'UPDATE' | 'DELETE', before: CollegeAuditRow | null, after: CollegeAuditRow | null, conn: DbConnection) {
+  if (before) await insertCollegeAuditRow(op, 'BEFORE', before, conn);
+  if (after)  await insertCollegeAuditRow(op, 'AFTER',  after,  conn);
+}
+
 // ── Students ───────────────────────────────────────────────────────────────────
 
 export async function addStudentToDb(student: StudentRecord) {
+  await requireAnyFaculty();
   // Server-side validation
   const name    = t(student.name);
   const college = t(student.college);
@@ -151,32 +242,23 @@ export async function addStudentToDb(student: StudentRecord) {
     : Buffer.alloc(0);
 
   try {
-    await dbExecute(
-      `INSERT INTO students
-         (id, college, name, parentage, studentid, rollNo, studentClass,
-          course, year, email, phone, busStop, bloodGroup, dob, address, percentage, photo, createdby)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        student.id,
-        college,
-        name,
-        t(student.parentage),
-        t(student.studentId),
-        t(student.rollNo),
-        t(student.studentClass),
-        t(student.course),
-        t(student.year),
-        t(student.email),
-        phone,
-        t(student.busStop),
-        t(student.bloodGroup),
-        t(student.dob),
-        t(student.address),
-        t(student.percentage),
-        photoBlob,
-        t(student.createdBy) ?? 'Unknown',
-      ]
-    );
+    await withTransaction(async (conn) => {
+      await connExecute(conn,
+        `INSERT INTO students
+           (id, college, name, parentage, studentid, rollNo, studentClass,
+            course, year, email, phone, busStop, bloodGroup, dob, address, percentage, photo, createdby)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          student.id, college, name,
+          t(student.parentage), t(student.studentId), t(student.rollNo),
+          t(student.studentClass), t(student.course), t(student.year),
+          t(student.email), phone, t(student.busStop), t(student.bloodGroup),
+          t(student.dob), t(student.address), t(student.percentage),
+          photoBlob, t(student.createdBy) ?? 'Unknown',
+        ]
+      );
+      await logStudentAudit('INSERT', null, { ...student, name: name!, college: college!, phone: phone! }, conn);
+    });
     return { success: true, message: 'Student registered successfully.' };
   } catch (error: unknown) {
     console.error('Add student error:', error);
@@ -187,6 +269,7 @@ export async function addStudentToDb(student: StudentRecord) {
 }
 
 export async function updateStudentInDb(student: StudentRecord) {
+  await requireAnyFaculty();
   const name  = t(student.name);
   const phone = t(student.phone);
   if (!name)  return { success: false, message: 'Student name is required.' };
@@ -195,60 +278,43 @@ export async function updateStudentInDb(student: StudentRecord) {
   // For updates: NULL photo means "keep existing" — but since photo is NOT NULL in DB
   // we preserve the old value by not updating it when null.
   try {
-    if (student.photo) {
-      const photoBlob = Buffer.from(student.photo.replace(/^data:image\/\w+;base64,/, ''), 'base64');
-      await dbExecute(
-        `UPDATE students SET
-           college=?, name=?, parentage=?, studentid=?, rollNo=?, studentClass=?,
-           course=?, year=?, email=?, phone=?, busStop=?, bloodGroup=?, dob=?, address=?, percentage=?, photo=?
-         WHERE id=? AND deleted_at IS NULL`,
-        [
-          t(student.college) ?? student.college,
-          name,
-          t(student.parentage),
-          t(student.studentId),
-          t(student.rollNo),
-          t(student.studentClass),
-          t(student.course),
-          t(student.year),
-          t(student.email),
-          phone,
-          t(student.busStop),
-          t(student.bloodGroup),
-          t(student.dob),
-          t(student.address),
-          t(student.percentage),
-          photoBlob,
-          student.id,
-        ]
-      );
-    } else {
-      // No new photo — update all other fields, leave photo column untouched
-      await dbExecute(
-        `UPDATE students SET
-           college=?, name=?, parentage=?, studentid=?, rollNo=?, studentClass=?,
-           course=?, year=?, email=?, phone=?, busStop=?, bloodGroup=?, dob=?, address=?, percentage=?
-         WHERE id=? AND deleted_at IS NULL`,
-        [
-          t(student.college) ?? student.college,
-          name,
-          t(student.parentage),
-          t(student.studentId),
-          t(student.rollNo),
-          t(student.studentClass),
-          t(student.course),
-          t(student.year),
-          t(student.email),
-          phone,
-          t(student.busStop),
-          t(student.bloodGroup),
-          t(student.dob),
-          t(student.address),
-          t(student.percentage),
-          student.id,
-        ]
-      );
-    }
+    const [beforeRows] = await dbExecute<RowDataPacket[]>('SELECT * FROM students WHERE id = ? AND deleted_at IS NULL', [student.id]);
+    const beforeRecord = beforeRows[0] ? rowToStudent(beforeRows[0]) : null;
+    await withTransaction(async (conn) => {
+      if (student.photo) {
+        const photoBlob = Buffer.from(student.photo.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+        await connExecute(conn,
+          `UPDATE students SET
+             college=?, name=?, parentage=?, studentid=?, rollNo=?, studentClass=?,
+             course=?, year=?, email=?, phone=?, busStop=?, bloodGroup=?, dob=?, address=?, percentage=?, photo=?
+           WHERE id=? AND deleted_at IS NULL`,
+          [
+            t(student.college) ?? student.college, name,
+            t(student.parentage), t(student.studentId), t(student.rollNo),
+            t(student.studentClass), t(student.course), t(student.year),
+            t(student.email), phone, t(student.busStop), t(student.bloodGroup),
+            t(student.dob), t(student.address), t(student.percentage),
+            photoBlob, student.id,
+          ]
+        );
+      } else {
+        await connExecute(conn,
+          `UPDATE students SET
+             college=?, name=?, parentage=?, studentid=?, rollNo=?, studentClass=?,
+             course=?, year=?, email=?, phone=?, busStop=?, bloodGroup=?, dob=?, address=?, percentage=?
+           WHERE id=? AND deleted_at IS NULL`,
+          [
+            t(student.college) ?? student.college, name,
+            t(student.parentage), t(student.studentId), t(student.rollNo),
+            t(student.studentClass), t(student.course), t(student.year),
+            t(student.email), phone, t(student.busStop), t(student.bloodGroup),
+            t(student.dob), t(student.address), t(student.percentage),
+            student.id,
+          ]
+        );
+      }
+      await logStudentAudit('UPDATE', beforeRecord, student, conn);
+    });
     return { success: true, message: 'Student updated successfully.' };
   } catch (error) {
     console.error('Update student error:', error);
@@ -257,12 +323,19 @@ export async function updateStudentInDb(student: StudentRecord) {
 }
 
 export async function deleteStudentFromDb(id: string, deletedBy?: string) {
+  await requireAnyFaculty();
   if (!id) return { success: false, message: 'Student ID is required.' };
   try {
-    await dbExecute(
-      'UPDATE students SET deleted_at = NOW(), deleted_by = ? WHERE id = ? AND deleted_at IS NULL',
-      [t(deletedBy) ?? 'Unknown', id]
-    );
+    const by = t(deletedBy) ?? 'Unknown';
+    const [beforeRows] = await dbExecute<RowDataPacket[]>('SELECT * FROM students WHERE id = ? AND deleted_at IS NULL', [id]);
+    const beforeRecord = beforeRows[0] ? rowToStudent(beforeRows[0]) : null;
+    await withTransaction(async (conn) => {
+      await connExecute(conn,
+        'UPDATE students SET deleted_at = NOW(), deleted_by = ? WHERE id = ? AND deleted_at IS NULL',
+        [by, id]
+      );
+      await logStudentAudit('DELETE', beforeRecord, null, conn);
+    });
     return { success: true };
   } catch (error) {
     console.error('Delete student error:', error);
@@ -271,9 +344,17 @@ export async function deleteStudentFromDb(id: string, deletedBy?: string) {
 }
 
 export async function restoreStudentInDb(id: string): Promise<{ success: boolean }> {
+  await requireAuth(['admin', 'faculty_admin', 'faculty']);
   if (!id) return { success: false };
   try {
-    await dbExecute('UPDATE students SET deleted_at = NULL, deleted_by = NULL WHERE id = ?', [id]);
+    const [beforeRows] = await dbExecute<RowDataPacket[]>('SELECT * FROM students WHERE id = ?', [id]);
+    const beforeRecord = beforeRows[0] ? rowToStudent(beforeRows[0]) : null;
+    await withTransaction(async (conn) => {
+      await connExecute(conn, 'UPDATE students SET deleted_at = NULL, deleted_by = NULL WHERE id = ?', [id]);
+      const [afterRows] = await connExecute<RowDataPacket[]>(conn, 'SELECT * FROM students WHERE id = ?', [id]);
+      const afterRecord = afterRows[0] ? rowToStudent(afterRows[0]) : null;
+      await logStudentAudit('UPDATE', beforeRecord, afterRecord, conn);
+    });
     return { success: true };
   } catch (error) {
     console.error('Restore student error:', error);
@@ -282,6 +363,7 @@ export async function restoreStudentInDb(id: string): Promise<{ success: boolean
 }
 
 export async function getStudents() {
+  await requireAnyFaculty();
   try {
     const [rows] = await dbExecute<RowDataPacket[]>(
       'SELECT * FROM students WHERE deleted_at IS NULL ORDER BY createdAt DESC'
@@ -294,6 +376,7 @@ export async function getStudents() {
 }
 
 export async function getStudentsByCollege(college: string): Promise<StudentRecord[]> {
+  await requireAnyFaculty();
   if (!college) return [];
   try {
     const [rows] = await dbExecute<RowDataPacket[]>(
@@ -308,6 +391,7 @@ export async function getStudentsByCollege(college: string): Promise<StudentReco
 }
 
 export async function getDeletedStudents(): Promise<StudentRecord[]> {
+  await requireAdmin();
   try {
     const [rows] = await dbExecute<RowDataPacket[]>(
       'SELECT * FROM students WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC'
@@ -320,6 +404,7 @@ export async function getDeletedStudents(): Promise<StudentRecord[]> {
 }
 
 export async function getDeletedStudentsByCollege(college: string): Promise<StudentRecord[]> {
+  await requireAuth(['admin', 'faculty_admin', 'faculty']);
   if (!college) return [];
   try {
     const [rows] = await dbExecute<RowDataPacket[]>(
@@ -336,6 +421,7 @@ export async function getDeletedStudentsByCollege(college: string): Promise<Stud
 // ── Users ──────────────────────────────────────────────────────────────────────
 
 export async function getUsers(): Promise<DbUser[]> {
+  await requireAdmin();
   try {
     const [rows] = await dbExecute<RowDataPacket[]>(
       `SELECT u.id, u.name, u.email, u.role, c.name AS college, u.created_at
@@ -352,6 +438,7 @@ export async function getUsers(): Promise<DbUser[]> {
 }
 
 export async function getUsersByCollege(college: string): Promise<DbUser[]> {
+  await requireAuth(['admin', 'faculty_admin']);
   if (!college) return [];
   try {
     const [rows] = await dbExecute<RowDataPacket[]>(
@@ -370,6 +457,7 @@ export async function getUsersByCollege(college: string): Promise<DbUser[]> {
 }
 
 export async function getDeletedUsers(): Promise<DbUser[]> {
+  await requireAdmin();
   try {
     const [rows] = await dbExecute<RowDataPacket[]>(
       `SELECT u.id, u.name, u.email, u.role, c.name AS college, u.created_at, u.deleted_by AS deletedBy
@@ -386,6 +474,7 @@ export async function getDeletedUsers(): Promise<DbUser[]> {
 }
 
 export async function getDeletedUsersByCollege(college: string): Promise<DbUser[]> {
+  await requireAuth(['admin', 'faculty_admin']);
   if (!college) return [];
   try {
     const [rows] = await dbExecute<RowDataPacket[]>(
@@ -404,12 +493,19 @@ export async function getDeletedUsersByCollege(college: string): Promise<DbUser[
 }
 
 export async function deleteUser(id: number, deletedBy?: string) {
+  await requireAuth(['admin', 'faculty_admin']);
   if (!id) return { success: false };
   try {
-    await dbExecute(
-      'UPDATE users SET deleted_at = NOW(), deleted_by = ? WHERE id = ? AND deleted_at IS NULL',
-      [t(deletedBy) ?? 'Unknown', id]
-    );
+    const by = t(deletedBy) ?? 'Unknown';
+    const [beforeRows] = await dbExecute<RowDataPacket[]>('SELECT id, name, email, role, college_id FROM users WHERE id = ? AND deleted_at IS NULL', [id]);
+    const beforeUser = (beforeRows[0] ?? null) as UserAuditRow | null;
+    await withTransaction(async (conn) => {
+      await connExecute(conn,
+        'UPDATE users SET deleted_at = NOW(), deleted_by = ? WHERE id = ? AND deleted_at IS NULL',
+        [by, id]
+      );
+      await logUserAudit('DELETE', beforeUser, null, conn);
+    });
     return { success: true };
   } catch (error) {
     console.error('Delete user error:', error);
@@ -418,9 +514,17 @@ export async function deleteUser(id: number, deletedBy?: string) {
 }
 
 export async function restoreUserInDb(id: number): Promise<{ success: boolean }> {
+  await requireAuth(['admin', 'faculty_admin']);
   if (!id) return { success: false };
   try {
-    await dbExecute('UPDATE users SET deleted_at = NULL, deleted_by = NULL WHERE id = ?', [id]);
+    const [beforeRows] = await dbExecute<RowDataPacket[]>('SELECT id, name, email, role, college_id, deleted_at, deleted_by FROM users WHERE id = ?', [id]);
+    const beforeUser = (beforeRows[0] ?? null) as UserAuditRow | null;
+    await withTransaction(async (conn) => {
+      await connExecute(conn, 'UPDATE users SET deleted_at = NULL, deleted_by = NULL WHERE id = ?', [id]);
+      const [afterRows] = await connExecute<RowDataPacket[]>(conn, 'SELECT id, name, email, role, college_id FROM users WHERE id = ?', [id]);
+      const afterUser = (afterRows[0] ?? null) as UserAuditRow | null;
+      await logUserAudit('UPDATE', beforeUser, afterUser, conn);
+    });
     return { success: true };
   } catch (error) {
     console.error('Restore user error:', error);
@@ -429,6 +533,7 @@ export async function restoreUserInDb(id: number): Promise<{ success: boolean }>
 }
 
 export async function updateUser(id: number, data: { name: string; email: string; role: string; college?: string | null; passwordHash?: string }) {
+  await requireAdmin();
   const name  = t(data.name);
   const email = t(data.email);
   if (!name)  return { success: false, message: 'Name is required.' };
@@ -436,17 +541,22 @@ export async function updateUser(id: number, data: { name: string; email: string
 
   try {
     const collegeId = await getCollegeId(data.college);
-    if (data.passwordHash) {
-      await dbExecute(
-        'UPDATE users SET name=?, email=?, role=?, college_id=?, password=? WHERE id=? AND deleted_at IS NULL',
-        [name, email.toLowerCase(), data.role, collegeId, data.passwordHash, id]
-      );
-    } else {
-      await dbExecute(
-        'UPDATE users SET name=?, email=?, role=?, college_id=? WHERE id=? AND deleted_at IS NULL',
-        [name, email.toLowerCase(), data.role, collegeId, id]
-      );
-    }
+    const [beforeRows] = await dbExecute<RowDataPacket[]>('SELECT id, name, email, role, college_id FROM users WHERE id = ?', [id]);
+    const beforeUser = (beforeRows[0] ?? null) as UserAuditRow | null;
+    await withTransaction(async (conn) => {
+      if (data.passwordHash) {
+        await connExecute(conn,
+          'UPDATE users SET name=?, email=?, role=?, college_id=?, password=? WHERE id=? AND deleted_at IS NULL',
+          [name, email!.toLowerCase(), data.role, collegeId, data.passwordHash, id]
+        );
+      } else {
+        await connExecute(conn,
+          'UPDATE users SET name=?, email=?, role=?, college_id=? WHERE id=? AND deleted_at IS NULL',
+          [name, email!.toLowerCase(), data.role, collegeId, id]
+        );
+      }
+      await logUserAudit('UPDATE', beforeUser, { id, name: name!, email: email!.toLowerCase(), role: data.role, college_id: collegeId }, conn);
+    });
     return { success: true };
   } catch (error) {
     console.error('Update user error:', error);
@@ -455,6 +565,7 @@ export async function updateUser(id: number, data: { name: string; email: string
 }
 
 export async function changeMyPassword(email: string, currentPasswordHash: string, newPasswordHash: string) {
+  await requireAnyFaculty();
   const emailClean = t(email);
   if (!emailClean) return { success: false, message: 'Email is required.' };
   try {
@@ -487,6 +598,7 @@ export async function getCollegesFromDb() {
 }
 
 export async function addCollegeToDb(name: string) {
+  await requireAdmin();
   const trimmed = t(name);
   if (!trimmed) return { success: false, message: 'College name is required.' };
   try {
@@ -495,7 +607,11 @@ export async function addCollegeToDb(name: string) {
       [trimmed]
     );
     if (deleted.length > 0) {
-      await dbExecute('UPDATE colleges SET deleted_at = NULL WHERE name = ?', [trimmed]);
+      const beforeCollege = { id: deleted[0].id, name: trimmed, deleted_at: deleted[0].deleted_at ?? null, deleted_by: deleted[0].deleted_by ?? null };
+      await withTransaction(async (conn) => {
+        await connExecute(conn, 'UPDATE colleges SET deleted_at = NULL WHERE name = ?', [trimmed]);
+        await logCollegeAudit('UPDATE', beforeCollege, { id: deleted[0].id, name: trimmed }, conn);
+      });
       return { success: true, message: 'College restored successfully.' };
     }
     const [active] = await dbExecute<RowDataPacket[]>(
@@ -504,7 +620,11 @@ export async function addCollegeToDb(name: string) {
     );
     if (active.length > 0) return { success: false, message: 'This college already exists.' };
 
-    await dbExecute('INSERT INTO colleges (name) VALUES (?)', [trimmed]);
+    await withTransaction(async (conn) => {
+      await connExecute(conn, 'INSERT INTO colleges (name) VALUES (?)', [trimmed]);
+      const [inserted] = await connExecute<RowDataPacket[]>(conn, 'SELECT id, created_at FROM colleges WHERE name = ?', [trimmed]);
+      if (inserted[0]) await logCollegeAudit('INSERT', null, { id: inserted[0].id, name: trimmed, created_at: inserted[0].created_at }, conn);
+    });
     return { success: true, message: 'College added successfully.' };
   } catch {
     return { success: false, message: 'Failed to add college.' };
@@ -512,13 +632,20 @@ export async function addCollegeToDb(name: string) {
 }
 
 export async function deleteCollegeFromDb(name: string, deletedBy?: string) {
+  await requireAdmin();
   const trimmed = t(name);
   if (!trimmed) return { success: false, message: 'College name is required.' };
   try {
-    await dbExecute(
-      'UPDATE colleges SET deleted_at = NOW(), deleted_by = ? WHERE name = ? AND deleted_at IS NULL',
-      [t(deletedBy) ?? 'Unknown', trimmed]
-    );
+    const by = t(deletedBy) ?? 'Unknown';
+    const [rows] = await dbExecute<RowDataPacket[]>('SELECT id, created_at FROM colleges WHERE name = ? AND deleted_at IS NULL', [trimmed]);
+    const beforeCollege = rows[0] ? { id: rows[0].id, name: trimmed, created_at: rows[0].created_at ?? null } : null;
+    await withTransaction(async (conn) => {
+      await connExecute(conn,
+        'UPDATE colleges SET deleted_at = NOW(), deleted_by = ? WHERE name = ? AND deleted_at IS NULL',
+        [by, trimmed]
+      );
+      await logCollegeAudit('DELETE', beforeCollege, null, conn);
+    });
     return { success: true, message: 'College removed successfully.' };
   } catch {
     return { success: false, message: 'Failed to remove college.' };
@@ -526,6 +653,7 @@ export async function deleteCollegeFromDb(name: string, deletedBy?: string) {
 }
 
 export async function getDeletedColleges(): Promise<{ name: string; deletedBy: string | null }[]> {
+  await requireAdmin();
   try {
     const [rows] = await dbExecute<RowDataPacket[]>(
       'SELECT name, deleted_by AS deletedBy FROM colleges WHERE deleted_at IS NOT NULL ORDER BY name'
@@ -537,10 +665,16 @@ export async function getDeletedColleges(): Promise<{ name: string; deletedBy: s
 }
 
 export async function restoreCollegeFromDb(name: string): Promise<{ success: boolean; message: string }> {
+  await requireAdmin();
   const trimmed = t(name);
   if (!trimmed) return { success: false, message: 'College name is required.' };
   try {
-    await dbExecute('UPDATE colleges SET deleted_at = NULL, deleted_by = NULL WHERE name = ?', [trimmed]);
+    const [beforeRows] = await dbExecute<RowDataPacket[]>('SELECT id, created_at, deleted_at FROM colleges WHERE name = ?', [trimmed]);
+    await withTransaction(async (conn) => {
+      await connExecute(conn, 'UPDATE colleges SET deleted_at = NULL, deleted_by = NULL WHERE name = ?', [trimmed]);
+      const [rows] = await connExecute<RowDataPacket[]>(conn, 'SELECT id, created_at FROM colleges WHERE name = ?', [trimmed]);
+      if (rows[0]) await logCollegeAudit('UPDATE', { id: rows[0].id, name: trimmed, deleted_at: beforeRows[0]?.deleted_at ?? null }, { id: rows[0].id, name: trimmed, created_at: rows[0].created_at }, conn);
+    });
     return { success: true, message: 'College restored successfully.' };
   } catch {
     return { success: false, message: 'Failed to restore college.' };
@@ -573,6 +707,7 @@ async function ensureDraftsTable() {
 }
 
 export async function saveDraftToDb(draft: DraftRecord): Promise<{ success: boolean; message?: string }> {
+  await requireAnyFaculty();
   try {
     await ensureDraftsTable();
     const photoBlob = draft.photo
@@ -615,6 +750,7 @@ export async function saveDraftToDb(draft: DraftRecord): Promise<{ success: bool
 }
 
 export async function getDraftsByUser(savedBy: string): Promise<DraftRecord[]> {
+  await requireAnyFaculty();
   try {
     await ensureDraftsTable();
     const [rows] = await dbExecute<RowDataPacket[]>(
@@ -655,6 +791,7 @@ export async function getDraftsByUser(savedBy: string): Promise<DraftRecord[]> {
 }
 
 export async function deleteDraftFromDb(id: string): Promise<{ success: boolean }> {
+  await requireAnyFaculty();
   try {
     await dbExecute('DELETE FROM student_drafts WHERE id = ?', [id]);
     return { success: true };
@@ -740,6 +877,7 @@ export async function addAuditLog(data: {
   entityId?: string;
   details?: string;
 }): Promise<void> {
+  await requireAnyFaculty();
   const { ip, ua } = await getRequestMeta();
   try {
     await dbExecute(
@@ -752,6 +890,7 @@ export async function addAuditLog(data: {
 }
 
 export async function getAuditLogs(): Promise<AuditLog[]> {
+  await requireAdmin();
   try {
     const [rows] = await dbExecute<RowDataPacket[]>(
       `SELECT id, user_email AS userEmail, user_name AS userName, action,
@@ -768,6 +907,7 @@ export async function getAuditLogs(): Promise<AuditLog[]> {
 }
 
 export async function getAuditLogsByCollege(college: string): Promise<AuditLog[]> {
+  await requireAuth(['admin', 'faculty_admin']);
   try {
     const [rows] = await dbExecute<RowDataPacket[]>(
       `SELECT al.id, al.user_email AS userEmail, al.user_name AS userName, al.action,
@@ -808,6 +948,7 @@ export async function ensureLoginHistoryTable() {
 }
 
 export async function getLoginHistory(): Promise<LoginHistory[]> {
+  await requireAdmin();
   try {
     const [rows] = await dbExecute<RowDataPacket[]>(
       `SELECT id, user_email AS userEmail, user_name AS userName,
@@ -823,6 +964,7 @@ export async function getLoginHistory(): Promise<LoginHistory[]> {
 }
 
 export async function getLoginHistoryByCollege(college: string): Promise<LoginHistory[]> {
+  await requireAuth(['admin', 'faculty_admin']);
   try {
     const [rows] = await dbExecute<RowDataPacket[]>(
       `SELECT lh.id, lh.user_email AS userEmail, lh.user_name AS userName,
@@ -842,6 +984,150 @@ export async function getLoginHistoryByCollege(college: string): Promise<LoginHi
       createdAt: String(r.createdAt),
     })) as LoginHistory[];
   } catch { return []; }
+}
+
+// ── Combined page-data actions ─────────────────────────────────────────────────
+
+/**
+ * Single init call: restores session, runs all schema migrations, and loads
+ * the global student + college lists — all in one server round-trip.
+ * Replaces getMe() + 6 separate migration calls + getStudents/getCollegesFromDb.
+ */
+export async function initApp(): Promise<{
+  user: User | null;
+  students: StudentRecord[];
+  colleges: string[];
+}> {
+  const { ensureAuditTables } = await import('./audit-schema');
+
+  // Restore session first — needed to decide whether to load data
+  const sessionUser = await getSessionUser();
+  const user = sessionUser ? (sessionUser as unknown as User) : null;
+
+  if (!user) {
+    // Run migrations even for guests so tables exist before first login
+    Promise.all([
+      migrateRoleEnum(),
+      migrateStudentColumns(),
+      ensureCollegesTable(),
+      ensureAuditLogsTable(),
+      ensureLoginHistoryTable(),
+      ensureAuditTables(),
+    ]).catch(() => {});
+    return { user: null, students: [], colleges: [] };
+  }
+
+  // Run migrations + load data in parallel
+  const [, , dbStudents, dbColleges] = await Promise.all([
+    Promise.all([
+      migrateRoleEnum(),
+      migrateStudentColumns(),
+      ensureCollegesTable(),
+      ensureAuditLogsTable(),
+      ensureLoginHistoryTable(),
+      ensureAuditTables(),
+    ]).catch(() => {}),
+    Promise.resolve(), // placeholder for symmetry
+    getStudents().catch(() => [] as StudentRecord[]),
+    getCollegesFromDb().catch(() => [] as string[]),
+  ]);
+
+  return { user, students: dbStudents as StudentRecord[], colleges: dbColleges as string[] };
+}
+
+export async function getUsersPageData(): Promise<{ users: DbUser[]; deletedUsers: DbUser[] }> {
+  await requireAdmin();
+  const [users, deletedUsers] = await Promise.all([getUsers(), getDeletedUsers()]);
+  return { users, deletedUsers };
+}
+
+export async function getStudentAuditLogs() {
+  await requireAdmin();
+  try {
+    const [rows] = await dbExecute<RowDataPacket[]>(
+      `SELECT audit_id AS auditId, operation, snapshot, changed_at AS changedAt,
+              changed_by AS changedBy, student_id AS studentId, college, name,
+              course, year, studentclass AS studentClass, rollno, phone,
+              has_photo AS hasPhoto, deleted_by AS deletedBy
+       FROM student_audit
+       ORDER BY changed_at DESC LIMIT 500`
+    );
+    return (rows as RowDataPacket[]).map(r => ({ ...r, changedAt: String(r.changedAt) }));
+  } catch { return []; }
+}
+
+export async function getUserAuditLogs() {
+  await requireAdmin();
+  try {
+    const [rows] = await dbExecute<RowDataPacket[]>(
+      `SELECT ua.audit_id AS auditId, ua.operation, ua.snapshot,
+              ua.changed_at AS changedAt, ua.user_id AS userId,
+              ua.name, ua.email, ua.role,
+              c.name AS college, ua.deleted_by AS deletedBy
+       FROM user_audit ua
+       LEFT JOIN colleges c ON c.id = ua.college_id
+       ORDER BY ua.changed_at DESC LIMIT 500`
+    );
+    return (rows as RowDataPacket[]).map(r => ({ ...r, changedAt: String(r.changedAt) }));
+  } catch { return []; }
+}
+
+export async function getCollegeAuditLogs() {
+  await requireAdmin();
+  try {
+    const [rows] = await dbExecute<RowDataPacket[]>(
+      `SELECT audit_id AS auditId, operation, snapshot,
+              changed_at AS changedAt, college_id AS collegeId,
+              name, deleted_by AS deletedBy
+       FROM college_audit
+       ORDER BY changed_at DESC LIMIT 500`
+    );
+    return (rows as RowDataPacket[]).map(r => ({ ...r, changedAt: String(r.changedAt) }));
+  } catch { return []; }
+}
+
+export async function getExportLogs(): Promise<AuditLog[]> {
+  await requireAdmin();
+  try {
+    const [rows] = await dbExecute<RowDataPacket[]>(
+      `SELECT id, user_email AS userEmail, user_name AS userName, action,
+              entity_type AS entityType, entity_id AS entityId, details,
+              ip_address AS ipAddress, user_agent AS userAgent,
+              created_at AS createdAt
+       FROM audit_logs
+       WHERE action IN ('export_zip', 'export_excel')
+       ORDER BY created_at DESC LIMIT 500`
+    );
+    return (rows as RowDataPacket[]).map(r => ({ ...r, createdAt: String(r.createdAt) })) as AuditLog[];
+  } catch { return []; }
+}
+
+export async function getLogsPageData() {
+  await requireAdmin();
+  const [exportLogs, loginHistory, studentAudit, userAudit, collegeAudit] = await Promise.all([
+    getExportLogs(),
+    getLoginHistory(),
+    getStudentAuditLogs(),
+    getUserAuditLogs(),
+    getCollegeAuditLogs(),
+  ]);
+  return { exportLogs, loginHistory, studentAudit, userAudit, collegeAudit };
+}
+
+export async function getCollegeDashboardData(college: string): Promise<{ students: StudentRecord[]; deletedStudents: StudentRecord[] }> {
+  await requireAnyFaculty();
+  if (!college) return { students: [], deletedStudents: [] };
+  const [students, deletedStudents] = await Promise.all([
+    getStudentsByCollege(college),
+    getDeletedStudentsByCollege(college),
+  ]);
+  return { students, deletedStudents };
+}
+
+export async function getAppInitData(): Promise<{ students: StudentRecord[]; colleges: string[] }> {
+  await requireAnyFaculty();
+  const [students, colleges] = await Promise.all([getStudents(), getCollegesFromDb()]);
+  return { students, colleges };
 }
 
 export async function migrateBase64PhotosToBlob(): Promise<{ success: boolean; migrated: number; message: string }> {

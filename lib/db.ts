@@ -41,14 +41,8 @@ const pool =
 export default pool;
 
 type QueryResult = RowDataPacket[] | ResultSetHeader;
-// mysql2 ExecuteValues is (string | number | boolean | null | Buffer | Date)[]
 type SqlValues = (string | number | boolean | null | Buffer | Date)[];
 
-/**
- * Executes a query and retries on connection errors.
- * MySQL servers may close idle connections or reject initial handshakes;
- * this catches such cases and lets the pool issue a fresh connection.
- */
 export async function dbExecute<T extends QueryResult>(
   sql: string,
   values?: SqlValues
@@ -71,7 +65,6 @@ export async function dbExecute<T extends QueryResult>(
         code === 'HANDSHAKE_TIMEOUT';
 
       if (isRetryableError && attempt < maxRetries) {
-        // Wait before retrying (exponential backoff)
         await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
         continue;
       }
@@ -79,4 +72,34 @@ export async function dbExecute<T extends QueryResult>(
     }
   }
   throw lastErr;
+}
+
+export type DbConnection = mysql.PoolConnection;
+
+/** Execute a query on a specific connection (used inside transactions). */
+export async function connExecute<T extends QueryResult>(
+  conn: DbConnection,
+  sql: string,
+  values?: SqlValues
+): Promise<[T, FieldPacket[]]> {
+  return conn.execute<T>(sql, values);
+}
+
+/**
+ * Run `fn` inside a MySQL transaction.
+ * Commits on success; rolls back and re-throws on any error.
+ */
+export async function withTransaction<T>(fn: (conn: DbConnection) => Promise<T>): Promise<T> {
+  const conn = await pool.getConnection();
+  await conn.beginTransaction();
+  try {
+    const result = await fn(conn);
+    await conn.commit();
+    return result;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 }

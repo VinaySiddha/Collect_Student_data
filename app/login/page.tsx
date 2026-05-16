@@ -18,9 +18,9 @@ const FEATURES = [
 ];
 
 function roleRedirect(role: string) {
-  if (role === 'admin') return '/admin';
-  if (role === 'faculty_admin') return '/faculty-admin';
-  return '/faculty';
+  if (role === 'admin') return '/admin/dashboard';
+  if (role === 'faculty_admin') return '/faculty-admin/dashboard';
+  return '/faculty/dashboard';
 }
 
 export default function LoginPage() {

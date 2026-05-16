@@ -1,7 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { loadAuthEmail, saveAuthEmail, saveAuthUser, loadAuthUser } from '@/lib/storage';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { hashPasswordClient } from '@/lib/clientHash';
 import { StudentRecord, User, UserRole } from '@/lib/types';
 import {
@@ -12,18 +11,16 @@ import {
   deleteStudentFromDb,
   updateStudentInDb,
   getCollegesFromDb,
-  migrateRoleEnum,
-  migrateStudentColumns,
-  ensureCollegesTable,
-  ensureAuditLogsTable,
-  ensureLoginHistoryTable,
   addCollegeToDb,
   deleteCollegeFromDb,
+  logoutAction,
+  initApp,
 } from '@/lib/actions';
 
 interface AuthContextValue {
   user: User | null;
   initialized: boolean;
+  dataLoaded: boolean;
   students: StudentRecord[];
   colleges: string[];
   login: (email: string, password: string) => Promise<{ success: boolean; message: string; role: UserRole | null }>;
@@ -31,6 +28,7 @@ interface AuthContextValue {
   addCollege: (college: string) => Promise<{ success: boolean; message: string }>;
   removeCollege: (college: string) => Promise<{ success: boolean; message: string }>;
   logout: () => void;
+  loadData: () => Promise<void>;
   addStudent: (student: StudentRecord) => Promise<void>;
   importStudents: (newStudents: StudentRecord[]) => Promise<void>;
   deleteStudent: (id: string) => Promise<void>;
@@ -44,32 +42,22 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [initialized, setInitialized] = useState(false);
+  const [dataLoaded, setDataLoaded] = useState(false);
   const [students, setStudents] = useState<StudentRecord[]>([]);
   const [colleges, setColleges] = useState<string[]>([]);
 
   useEffect(() => {
     const initAuth = async () => {
-      // Restore session synchronously from localStorage
-      const storedUser = loadAuthUser();
-      if (storedUser) setUser(storedUser as User);
-
-      // Small minimum delay so the loader doesn't flash for a single frame
-      await new Promise(r => setTimeout(r, 400));
-      setInitialized(true);
-
-      // Run migrations + data load in background (non-blocking)
-      Promise.all([
-        migrateRoleEnum(),
-        migrateStudentColumns(),
-        ensureCollegesTable(),
-        ensureAuditLogsTable(),
-        ensureLoginHistoryTable(),
-      ]).then(() =>
-        Promise.all([getStudents(), getCollegesFromDb()])
-      ).then(([dbStudents, dbColleges]) => {
+      // Single call: session restore + migrations + global data
+      const { user: sessionUser, students: dbStudents, colleges: dbColleges } = await initApp();
+      if (sessionUser) {
+        setUser(sessionUser);
         setStudents(dbStudents);
         setColleges(dbColleges);
-      }).catch(() => {});
+        setDataLoaded(true);
+      }
+      await new Promise(r => setTimeout(r, 400));
+      setInitialized(true);
     };
     initAuth();
   }, []);
@@ -78,13 +66,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const passwordHash = await hashPasswordClient(email, password);
     const result = await loginUser(email, passwordHash);
     if (result.success && result.user) {
-      saveAuthEmail(result.user.email);
-      saveAuthUser({
-        name: result.user.name,
-        email: result.user.email,
-        role: result.user.role,
-        college: result.user.college,
-      });
       setUser(result.user);
       return { success: true, message: result.message, role: result.user.role as UserRole };
     }
@@ -95,13 +76,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const passwordHash = await hashPasswordClient(email, password);
     const result = await registerUser(name, email, passwordHash, role, college);
     if (result.success && result.user) {
-      saveAuthEmail(result.user.email);
-      saveAuthUser({
-        name: result.user.name,
-        email: result.user.email,
-        role: result.user.role,
-        college: result.user.college,
-      });
       setUser(result.user);
     }
     return { success: result.success, message: result.message };
@@ -135,12 +109,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return result;
   };
 
-  const logout = () => {
-    saveAuthEmail(null);
-    saveAuthUser(null);
+  const loadData = useCallback(async () => {
+    const [dbStudents, dbColleges] = await Promise.all([getStudents(), getCollegesFromDb()]);
+    setStudents(dbStudents);
+    setColleges(dbColleges);
+    setDataLoaded(true);
+  }, []);
+
+  const logout = useCallback(() => {
+    logoutAction().catch(() => {});
     setUser(null);
     window.location.href = '/login';
-  };
+  }, []);
 
   const addStudent = async (student: StudentRecord) => {
     const result = await addStudentToDb(student);
@@ -170,20 +150,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const refreshStudents = async () => {
+  const refreshStudents = useCallback(async () => {
     const dbStudents = await getStudents();
     setStudents(dbStudents);
-  };
+  }, []);
 
-  const refreshColleges = async () => {
+  const refreshColleges = useCallback(async () => {
     const dbColleges = await getCollegesFromDb();
     setColleges(dbColleges);
-  };
+  }, []);
 
   return (
     <AuthContext.Provider value={{
       user,
       initialized,
+      dataLoaded,
       students,
       colleges,
       login,
@@ -191,6 +172,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       addCollege,
       removeCollege,
       logout,
+      loadData,
       addStudent,
       importStudents,
       deleteStudent,

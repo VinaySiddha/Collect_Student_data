@@ -11,7 +11,11 @@ export function Header() {
   const { user, logout } = useAuth();
   const pathname = usePathname();
 
-  if (pathname === '/admin' || pathname === '/login' || pathname === '/faculty' || pathname === '/faculty-admin') return null;
+  if (
+    pathname === '/login' ||
+    pathname.startsWith('/admin') ||
+    pathname.startsWith('/faculty')
+  ) return null;
 
   const closeMenu = () => setIsOpen(false);
 
