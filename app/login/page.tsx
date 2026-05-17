@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
-import { FiEye, FiEyeOff, FiMail, FiLock, FiArrowRight, FiShield, FiUsers, FiCamera } from 'react-icons/fi';
+import { FiEye, FiEyeOff, FiMail, FiLock, FiArrowRight, FiShield, FiUsers, FiCamera, FiPhone } from 'react-icons/fi';
 
 const STATS = [
   { icon: <FiUsers className="w-4 h-4" />, value: '10,000+', label: 'Students registered' },
@@ -276,6 +277,47 @@ export default function LoginPage() {
                   {b.label}
                 </span>
               ))}
+            </div>
+
+            {/* Get Connected callout */}
+            <div className="mt-8 rounded-2xl border border-slate-100 bg-slate-50 overflow-hidden">
+              <div className="px-5 pt-5 pb-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-[0.6rem] font-black uppercase tracking-widest text-emerald-600">New Institution?</span>
+                </div>
+                <h3 className="text-slate-900 font-black text-sm leading-tight mb-1.5">
+                  Get Connected for Onboarding
+                </h3>
+                <p className="text-slate-400 text-xs leading-relaxed mb-4">
+                  Don't have portal access yet? Reach out and we'll set up your institution's account and walk you through everything.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <a
+                    href="tel:+919541022460"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-white border border-slate-200 hover:border-slate-300 hover:shadow-sm transition-all px-3 py-2 text-[0.65rem] font-black text-slate-600 hover:text-slate-900"
+                  >
+                    <FiPhone className="w-3 h-3" />
+                    +91 95410 2246
+                  </a>
+                  <a
+                    href="mailto:info@gographic.in"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-white border border-slate-200 hover:border-slate-300 hover:shadow-sm transition-all px-3 py-2 text-[0.65rem] font-black text-slate-600 hover:text-slate-900"
+                  >
+                    <FiMail className="w-3 h-3" />
+                    info@gographic.in
+                  </a>
+                </div>
+              </div>
+              <div className="border-t border-slate-100 px-5 py-3 flex items-center justify-between">
+                <p className="text-[0.6rem] text-slate-300 font-medium">Serving institutions across J&amp;K</p>
+                <Link
+                  href="/"
+                  className="text-[0.6rem] font-black text-slate-400 hover:text-slate-700 transition-colors uppercase tracking-widest"
+                >
+                  Learn More →
+                </Link>
+              </div>
             </div>
 
             {/* Mobile stats */}

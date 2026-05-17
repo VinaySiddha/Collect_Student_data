@@ -4,19 +4,22 @@ import { useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
-import { changeMyPassword } from '@/lib/actions';
+import { changeMyPassword, getCollegeAssets } from '@/lib/actions';
 import { hashPasswordClient } from '@/lib/clientHash';
 import { useInactivityLogout } from '@/hooks/useInactivityLogout';
 import {
   FiLayout, FiUserPlus, FiUsers, FiLogOut, FiLock,
-  FiMenu, FiX, FiSave,
+  FiMenu, FiX, FiSave, FiPackage,
 } from 'react-icons/fi';
 import { GoSidebarExpand, GoSidebarCollapse } from 'react-icons/go';
 
+const ORDER_PATH = '/faculty-admin/order';
+
 const NAV_ITEMS = [
-  { href: '/faculty-admin/dashboard', icon: FiLayout,   label: 'Dashboard' },
-  { href: '/faculty-admin/register',  icon: FiUserPlus, label: 'Register'  },
-  { href: '/faculty-admin/faculty',   icon: FiUsers,    label: 'Faculty'   },
+  { href: '/faculty-admin/dashboard', icon: FiLayout,   label: 'Dashboard',   requiresSetup: true  },
+  { href: '/faculty-admin/register',  icon: FiUserPlus, label: 'Register',    requiresSetup: true  },
+  { href: '/faculty-admin/faculty',   icon: FiUsers,    label: 'Faculty',     requiresSetup: true  },
+  { href: ORDER_PATH,                 icon: FiPackage,  label: 'Order Setup', requiresSetup: false },
 ];
 
 export default function FacultyAdminLayout({ children }: { children: React.ReactNode }) {
@@ -30,6 +33,7 @@ export default function FacultyAdminLayout({ children }: { children: React.React
   const [changePwdForm,   setChangePwdForm]   = useState({ current: '', next: '', confirm: '' });
   const [changePwdMsg,    setChangePwdMsg]    = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [changePwdSaving, setChangePwdSaving] = useState(false);
+  const [setupComplete,   setSetupComplete]   = useState<boolean | null>(null);
 
   const { warningVisible, secondsLeft, stayLoggedIn } = useInactivityLogout(logout);
 
@@ -38,6 +42,19 @@ export default function FacultyAdminLayout({ children }: { children: React.React
     if (!user) { router.push('/login'); return; }
     if (user.role !== 'faculty_admin') { router.push('/faculty'); return; }
   }, [user, initialized, router]);
+
+  // Check order setup completeness whenever user or pathname changes
+  useEffect(() => {
+    if (!user?.college) return;
+    getCollegeAssets(user.college).then(assets => {
+      const complete = !!(assets.logo && assets.signature && assets.studentCount);
+      setSetupComplete(complete);
+      // Redirect to order setup if on a guarded page and setup isn't done
+      if (!complete && !pathname.startsWith(ORDER_PATH)) {
+        router.push(`${ORDER_PATH}?required=1`);
+      }
+    });
+  }, [user?.college, pathname, router]);
 
   const handleChangePassword = async () => {
     if (!changePwdForm.current || !changePwdForm.next) {
@@ -125,14 +142,28 @@ export default function FacultyAdminLayout({ children }: { children: React.React
 
         {/* Nav */}
         <nav className="flex-1 px-2 py-4 space-y-1">
-          {NAV_ITEMS.map(({ href, icon: Icon, label }) => {
-            const active = pathname.startsWith(href);
-            return (
+          {NAV_ITEMS.map(({ href, icon: Icon, label, requiresSetup }) => {
+            const active  = pathname.startsWith(href);
+            const locked  = requiresSetup && setupComplete === false;
+            const title   = collapsed ? label : locked ? 'Complete Order Setup first' : undefined;
+            return locked ? (
+              <button
+                key={href}
+                type="button"
+                disabled
+                title={title}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded text-sm font-bold transition-all cursor-not-allowed opacity-35 ${collapsed ? 'lg:justify-center lg:px-2' : ''} text-white/50`}
+              >
+                <Icon className="w-4 h-4 shrink-0" />
+                <span className={`flex-1 text-left ${collapsed ? 'lg:hidden' : ''}`}>{label}</span>
+                {!collapsed && <FiLock className="w-3 h-3 shrink-0 lg:block hidden" />}
+              </button>
+            ) : (
               <Link
                 key={href}
                 href={href}
                 onClick={() => setMobileOpen(false)}
-                title={collapsed ? label : undefined}
+                title={title}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded text-sm font-bold transition-all ${collapsed ? 'lg:justify-center lg:px-2' : ''} ${active ? 'bg-white/10 text-white' : 'text-white/50 hover:bg-white/5 hover:text-white'}`}
               >
                 <Icon className="w-4 h-4 shrink-0" />
@@ -201,8 +232,20 @@ export default function FacultyAdminLayout({ children }: { children: React.React
 
       {/* Mobile bottom tab bar */}
       <nav className="fixed bottom-0 inset-x-0 z-40 lg:hidden bg-slate-900 border-t border-white/10 flex safe-area-bottom">
-        {NAV_ITEMS.map(({ href, icon: Icon, label }) => {
-          const active = pathname.startsWith(href);
+        {NAV_ITEMS.map(({ href, icon: Icon, label, requiresSetup }) => {
+          const active  = pathname.startsWith(href);
+          const locked  = requiresSetup && setupComplete === false;
+          if (locked) return (
+            <button
+              key={href}
+              type="button"
+              disabled
+              className="flex-1 flex flex-col items-center gap-1 pt-3 pb-4 text-[0.55rem] font-black uppercase tracking-widest opacity-25 cursor-not-allowed text-white/35"
+            >
+              <FiLock className="w-4 h-4" />
+              {label}
+            </button>
+          );
           return (
             <Link
               key={href}

@@ -2,6 +2,7 @@
 
 import { useAuth } from '@/components/AuthProvider';
 import PageLoader from '@/components/PageLoader';
+import FloatingContact from '@/components/FloatingContact';
 import { useEffect, useState } from 'react';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -26,6 +27,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <div className={`transition-opacity duration-300 ${initialized && !visible ? 'opacity-100' : initialized ? 'opacity-100' : 'opacity-0'}`}>
         {children}
       </div>
+      <FloatingContact />
     </>
   );
 }

@@ -1149,3 +1149,202 @@ export async function migrateBase64PhotosToBlob(): Promise<{ success: boolean; m
     return { success: false, migrated: 0, message: 'Migration failed.' };
   }
 }
+
+// ── Public inquiry form ────────────────────────────────────────────────────────
+
+export interface InquiryData {
+  institutionName: string;
+  contactName: string;
+  email: string;
+  phone: string;
+  message: string;
+}
+
+export async function submitInquiry(
+  data: InquiryData
+): Promise<{ success: boolean; message: string }> {
+  try {
+    await dbExecute(`
+      CREATE TABLE IF NOT EXISTS contact_inquiries (
+        id              INT AUTO_INCREMENT PRIMARY KEY,
+        institution_name VARCHAR(255) NOT NULL,
+        contact_name    VARCHAR(255) NOT NULL,
+        email           VARCHAR(255) NOT NULL,
+        phone           VARCHAR(50),
+        message         TEXT,
+        status          ENUM('new','read','replied') NOT NULL DEFAULT 'new',
+        created_at      DATETIME NOT NULL
+      )
+    `);
+
+    const name   = t(data.institutionName);
+    const person = t(data.contactName);
+    const email  = t(data.email);
+
+    if (!name || !person || !email) {
+      return { success: false, message: 'Institution name, your name, and email are required.' };
+    }
+
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRe.test(email)) {
+      return { success: false, message: 'Please enter a valid email address.' };
+    }
+
+    await dbExecute(
+      `INSERT INTO contact_inquiries
+         (institution_name, contact_name, email, phone, message, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        name,
+        person,
+        email,
+        t(data.phone) ?? null,
+        t(data.message) ?? null,
+        nowIST(),
+      ]
+    );
+
+    return { success: true, message: "Thank you! We'll be in touch within 24 hours." };
+  } catch (err) {
+    console.error('submitInquiry error:', err);
+    return { success: false, message: 'Something went wrong. Please try again or contact us directly.' };
+  }
+}
+
+// ── College assets (logo + signature) ─────────────────────────────────────────
+
+async function ensureCollegeAssetsTable() {
+  await dbExecute(`
+    CREATE TABLE IF NOT EXISTS college_assets (
+      id             INT AUTO_INCREMENT PRIMARY KEY,
+      college        VARCHAR(255) NOT NULL UNIQUE,
+      logo           MEDIUMBLOB,
+      logo_mime      VARCHAR(50),
+      signature      MEDIUMBLOB,
+      sig_mime       VARCHAR(50),
+      student_count  INT UNSIGNED,
+      updated_at     DATETIME NOT NULL,
+      updated_by     VARCHAR(255)
+    )
+  `);
+  // Add column if table already existed without it
+  await dbExecute(`
+    ALTER TABLE college_assets
+    ADD COLUMN IF NOT EXISTS student_count INT UNSIGNED
+  `).catch(() => {});
+}
+
+function dataUrlToBlob(dataUrl: string | null | undefined): { buf: Buffer | null; mime: string | null } {
+  if (!dataUrl) return { buf: null, mime: null };
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!m) return { buf: null, mime: null };
+  return { buf: Buffer.from(m[2], 'base64'), mime: m[1] };
+}
+
+function blobToDataUrl(blob: unknown, mime: unknown): string | null {
+  if (!blob || !mime) return null;
+  const buf = blob instanceof Buffer ? blob : Buffer.from(blob as Uint8Array);
+  return `data:${mime};base64,${buf.toString('base64')}`;
+}
+
+export async function saveCollegeAssets(data: {
+  college: string;
+  logo?: string | null;
+  signature?: string | null;
+  studentCount?: number | null;
+  updatedBy: string;
+}): Promise<{ success: boolean; message: string }> {
+  await requireAnyFaculty();
+  try {
+    await ensureCollegeAssetsTable();
+
+    const logo   = dataUrlToBlob(data.logo);
+    const sig    = dataUrlToBlob(data.signature);
+    const count  = data.studentCount != null && data.studentCount > 0 ? data.studentCount : null;
+
+    const [existing] = await dbExecute<RowDataPacket[]>(
+      'SELECT id FROM college_assets WHERE college = ?', [data.college]
+    );
+
+    if (existing.length > 0) {
+      await dbExecute(
+        `UPDATE college_assets
+           SET logo = ?, logo_mime = ?, signature = ?, sig_mime = ?,
+               student_count = ?, updated_at = ?, updated_by = ?
+         WHERE college = ?`,
+        [logo.buf, logo.mime, sig.buf, sig.mime, count, nowIST(), data.updatedBy, data.college]
+      );
+    } else {
+      await dbExecute(
+        `INSERT INTO college_assets
+           (college, logo, logo_mime, signature, sig_mime, student_count, updated_at, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [data.college, logo.buf, logo.mime, sig.buf, sig.mime, count, nowIST(), data.updatedBy]
+      );
+    }
+
+    return { success: true, message: 'Assets saved successfully.' };
+  } catch (err) {
+    console.error('saveCollegeAssets error:', err);
+    return { success: false, message: 'Failed to save assets. Please try again.' };
+  }
+}
+
+// ── Callback requests ──────────────────────────────────────────────────────────
+
+export type CallbackReason = 'product_details' | 'onboarding' | 'support';
+
+export async function submitCallbackRequest(data: {
+  phone: string;
+  reason: CallbackReason;
+}): Promise<{ success: boolean; message: string }> {
+  try {
+    await dbExecute(`
+      CREATE TABLE IF NOT EXISTS callback_requests (
+        id         INT AUTO_INCREMENT PRIMARY KEY,
+        phone      VARCHAR(50)  NOT NULL,
+        reason     ENUM('product_details','onboarding','support') NOT NULL,
+        status     ENUM('pending','called','resolved') NOT NULL DEFAULT 'pending',
+        created_at DATETIME NOT NULL
+      )
+    `);
+
+    const phone = t(data.phone);
+    if (!phone) return { success: false, message: 'Please enter your phone number.' };
+
+    const phoneRe = /^[+\d\s\-()]{6,20}$/;
+    if (!phoneRe.test(phone)) return { success: false, message: 'Please enter a valid phone number.' };
+
+    await dbExecute(
+      `INSERT INTO callback_requests (phone, reason, created_at) VALUES (?, ?, ?)`,
+      [phone, data.reason, nowIST()]
+    );
+
+    return { success: true, message: "We've received your request. Expect a call within a few hours." };
+  } catch (err) {
+    console.error('submitCallbackRequest error:', err);
+    return { success: false, message: 'Something went wrong. Please call us directly at +91 95410 2246.' };
+  }
+}
+
+export async function getCollegeAssets(
+  college: string
+): Promise<{ logo: string | null; signature: string | null; studentCount: number | null }> {
+  await requireAnyFaculty();
+  try {
+    await ensureCollegeAssetsTable();
+    const [rows] = await dbExecute<RowDataPacket[]>(
+      'SELECT logo, logo_mime, signature, sig_mime, student_count FROM college_assets WHERE college = ?',
+      [college]
+    );
+    if (rows.length === 0) return { logo: null, signature: null, studentCount: null };
+    const r = rows[0] as Record<string, unknown>;
+    return {
+      logo:         blobToDataUrl(r.logo,      r.logo_mime),
+      signature:    blobToDataUrl(r.signature, r.sig_mime),
+      studentCount: r.student_count != null ? Number(r.student_count) : null,
+    };
+  } catch {
+    return { logo: null, signature: null, studentCount: null };
+  }
+}

@@ -5,8 +5,9 @@ import { useState, useEffect, useRef } from 'react';
 import {
   FiLogIn, FiArrowRight, FiMail, FiPhone, FiMapPin,
   FiUsers, FiCamera, FiShield, FiCheckCircle,
-  FiPrinter, FiFileText, FiCpu, FiStar,
+  FiPrinter, FiFileText, FiCpu, FiStar, FiSend, FiUser, FiHome,
 } from 'react-icons/fi';
+import { submitInquiry } from '@/lib/actions';
 
 const STATS = [
   { value: '10,000+', label: 'Students registered' },
@@ -61,10 +62,25 @@ export default function HomePage() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { const t = setTimeout(() => setMounted(true), 80); return () => clearTimeout(t); }, []);
 
-  const services  = useInView();
-  const process   = useInView();
-  const why       = useInView();
-  const contact   = useInView();
+  const [inquiry, setInquiry] = useState({ institutionName: '', contactName: '', email: '', phone: '', message: '' });
+  const [inquiryLoading, setInquiryLoading] = useState(false);
+  const [inquiryStatus, setInquiryStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  async function handleInquiry(e: React.FormEvent) {
+    e.preventDefault();
+    setInquiryLoading(true);
+    setInquiryStatus(null);
+    const result = await submitInquiry(inquiry);
+    setInquiryLoading(false);
+    setInquiryStatus({ ok: result.success, msg: result.message });
+    if (result.success) setInquiry({ institutionName: '', contactName: '', email: '', phone: '', message: '' });
+  }
+
+  const services     = useInView();
+  const process      = useInView();
+  const why          = useInView();
+  const getConnected = useInView();
+  const contact      = useInView();
 
   return (
     <main className="min-h-screen bg-white text-slate-900 overflow-x-hidden">
@@ -373,6 +389,230 @@ export default function HomePage() {
                 </Link>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── GET CONNECTED ── */}
+      <section className="px-6 py-24 lg:px-10 bg-slate-950 relative overflow-hidden">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute top-[-80px] right-[-60px] w-[420px] h-[420px] rounded-full bg-emerald-500/15 blur-[110px]" />
+          <div className="absolute bottom-[-60px] left-[-40px] w-[380px] h-[380px] rounded-full bg-violet-600/15 blur-[100px]" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[260px] h-[260px] rounded-full bg-sky-500/10 blur-[90px]" />
+        </div>
+        <div className="pointer-events-none absolute inset-0 opacity-[0.03]"
+          style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.6) 1px, transparent 1px)', backgroundSize: '44px 44px' }} />
+
+        <div ref={getConnected.ref} className="relative mx-auto max-w-6xl">
+          <div className="grid lg:grid-cols-2 gap-14 items-center">
+
+            {/* Left — platform intro */}
+            <div
+              style={{ opacity: getConnected.inView ? 1 : 0, transform: getConnected.inView ? 'translateX(0)' : 'translateX(-24px)', transition: 'opacity 0.65s ease, transform 0.65s ease' }}
+            >
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 mb-8">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-emerald-400 text-[0.62rem] font-black uppercase tracking-widest">Get Connected</span>
+              </div>
+
+              <h2 className="text-3xl lg:text-4xl xl:text-5xl font-black text-white leading-[1.1] tracking-tight mb-5">
+                Ready to Bring Your<br />Institution Online?
+              </h2>
+              <p className="text-white/40 text-sm leading-relaxed max-w-md mb-10">
+                Gographic is the all-in-one school ID management platform trusted by institutions across Jammu &amp; Kashmir. We handle everything — from student registration and photo integration to bulk printing and delivery — so your team can focus on what matters most.
+              </p>
+
+              <ul className="space-y-4 mb-10">
+                {[
+                  { title: 'Dedicated Onboarding', desc: 'Our team sets up your institution\'s portal from scratch, no technical knowledge required.' },
+                  { title: 'Custom Branding', desc: 'ID cards designed to reflect your school\'s identity — colours, logo, and layout.' },
+                  { title: 'Secure Role-based Access', desc: 'Faculty, faculty-admin, and admin roles — each with the right level of access.' },
+                  { title: 'End-to-end Delivery', desc: 'Printed cards dispatched directly to your institution, fully quality-checked.' },
+                ].map(({ title, desc }, i) => (
+                  <li
+                    key={title}
+                    className="flex gap-4"
+                    style={{
+                      opacity: getConnected.inView ? 1 : 0,
+                      transform: getConnected.inView ? 'translateX(0)' : 'translateX(-16px)',
+                      transition: `opacity 0.5s ease ${0.15 + i * 0.09}s, transform 0.5s ease ${0.15 + i * 0.09}s`,
+                    }}
+                  >
+                    <span className="w-5 h-5 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center shrink-0 mt-0.5">
+                      <svg className="w-2.5 h-2.5 text-emerald-400" fill="none" viewBox="0 0 12 12" stroke="currentColor" strokeWidth="2.5">
+                        <path d="M2 6l3 3 5-5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
+                    <div>
+                      <p className="font-black text-white text-sm">{title}</p>
+                      <p className="text-white/35 text-xs mt-0.5 leading-relaxed">{desc}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Right — inquiry form */}
+            <div
+              className="rounded-3xl bg-white/5 border border-white/10 p-8 lg:p-10 relative overflow-hidden backdrop-blur-sm"
+              style={{ opacity: getConnected.inView ? 1 : 0, transform: getConnected.inView ? 'translateX(0)' : 'translateX(24px)', transition: 'opacity 0.65s ease 0.1s, transform 0.65s ease 0.1s' }}
+            >
+              <div className="pointer-events-none absolute inset-0">
+                <div className="absolute top-[-30px] right-[-30px] w-[180px] h-[180px] rounded-full bg-emerald-500/10 blur-[70px]" />
+              </div>
+              <div className="relative">
+                <p className="text-[0.62rem] font-black uppercase tracking-widest text-white/30 mb-1">Send an Inquiry</p>
+                <h3 className="text-xl font-black text-white leading-tight mb-6">
+                  Let's onboard your institution.
+                </h3>
+
+                {inquiryStatus?.ok ? (
+                  <div className="flex flex-col items-center justify-center py-10 text-center">
+                    <div className="w-14 h-14 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center mb-5">
+                      <svg className="w-7 h-7 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </div>
+                    <p className="text-white font-black text-base mb-2">Inquiry Sent!</p>
+                    <p className="text-white/40 text-xs leading-relaxed max-w-xs">{inquiryStatus.msg}</p>
+                    <button
+                      onClick={() => setInquiryStatus(null)}
+                      className="mt-6 text-[0.65rem] font-black uppercase tracking-widest text-white/30 hover:text-white/60 transition-colors"
+                    >
+                      Send another →
+                    </button>
+                  </div>
+                ) : (
+                  <form onSubmit={handleInquiry} className="space-y-4">
+
+                    {/* Institution name */}
+                    <div>
+                      <label className="block text-[0.6rem] font-black uppercase tracking-widest text-white/30 mb-1.5">
+                        Institution Name <span className="text-emerald-400">*</span>
+                      </label>
+                      <div className="relative">
+                        <FiHome className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/20 pointer-events-none" />
+                        <input
+                          type="text"
+                          required
+                          value={inquiry.institutionName}
+                          onChange={e => setInquiry(p => ({ ...p, institutionName: e.target.value }))}
+                          placeholder="e.g. Government Higher Secondary School"
+                          className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/8 border border-white/10 text-white text-xs placeholder-white/20 outline-none focus:border-emerald-500/50 focus:bg-white/10 transition-all duration-200"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Name + Phone row */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[0.6rem] font-black uppercase tracking-widest text-white/30 mb-1.5">
+                          Your Name <span className="text-emerald-400">*</span>
+                        </label>
+                        <div className="relative">
+                          <FiUser className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/20 pointer-events-none" />
+                          <input
+                            type="text"
+                            required
+                            value={inquiry.contactName}
+                            onChange={e => setInquiry(p => ({ ...p, contactName: e.target.value }))}
+                            placeholder="Full name"
+                            className="w-full pl-10 pr-3 py-3 rounded-xl bg-white/8 border border-white/10 text-white text-xs placeholder-white/20 outline-none focus:border-emerald-500/50 focus:bg-white/10 transition-all duration-200"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[0.6rem] font-black uppercase tracking-widest text-white/30 mb-1.5">
+                          Phone
+                        </label>
+                        <div className="relative">
+                          <FiPhone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/20 pointer-events-none" />
+                          <input
+                            type="tel"
+                            value={inquiry.phone}
+                            onChange={e => setInquiry(p => ({ ...p, phone: e.target.value }))}
+                            placeholder="+91 ..."
+                            className="w-full pl-10 pr-3 py-3 rounded-xl bg-white/8 border border-white/10 text-white text-xs placeholder-white/20 outline-none focus:border-emerald-500/50 focus:bg-white/10 transition-all duration-200"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Email */}
+                    <div>
+                      <label className="block text-[0.6rem] font-black uppercase tracking-widest text-white/30 mb-1.5">
+                        Email <span className="text-emerald-400">*</span>
+                      </label>
+                      <div className="relative">
+                        <FiMail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/20 pointer-events-none" />
+                        <input
+                          type="email"
+                          required
+                          value={inquiry.email}
+                          onChange={e => setInquiry(p => ({ ...p, email: e.target.value }))}
+                          placeholder="principal@school.edu"
+                          className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/8 border border-white/10 text-white text-xs placeholder-white/20 outline-none focus:border-emerald-500/50 focus:bg-white/10 transition-all duration-200"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Message */}
+                    <div>
+                      <label className="block text-[0.6rem] font-black uppercase tracking-widest text-white/30 mb-1.5">
+                        Message
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={inquiry.message}
+                        onChange={e => setInquiry(p => ({ ...p, message: e.target.value }))}
+                        placeholder="Tell us about your institution and what you need…"
+                        className="w-full px-4 py-3 rounded-xl bg-white/8 border border-white/10 text-white text-xs placeholder-white/20 outline-none focus:border-emerald-500/50 focus:bg-white/10 transition-all duration-200 resize-none"
+                      />
+                    </div>
+
+                    {/* Error */}
+                    {inquiryStatus && !inquiryStatus.ok && (
+                      <div className="flex items-start gap-2.5 px-3.5 py-3 rounded-xl bg-rose-500/10 border border-rose-500/20">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-400 mt-1 shrink-0" />
+                        <p className="text-rose-300 text-xs leading-relaxed">{inquiryStatus.msg}</p>
+                      </div>
+                    )}
+
+                    {/* Submit */}
+                    <button
+                      type="submit"
+                      disabled={inquiryLoading}
+                      className="w-full flex items-center justify-center gap-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed px-5 py-3.5 text-sm font-black text-white shadow-lg shadow-emerald-500/20 mt-1"
+                    >
+                      {inquiryLoading ? (
+                        <>
+                          <span className="w-4 h-4 rounded-full border-2 border-white/20 border-t-white animate-spin" />
+                          Sending…
+                        </>
+                      ) : (
+                        <>
+                          <FiSend className="w-4 h-4" />
+                          Send Inquiry
+                          <FiArrowRight className="w-4 h-4" />
+                        </>
+                      )}
+                    </button>
+
+                    <div className="pt-4 border-t border-white/8 flex items-center justify-between gap-3">
+                      <p className="text-white/25 text-[0.6rem]">Already have portal access?</p>
+                      <Link
+                        href="/login"
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-white/8 hover:bg-white/12 border border-white/12 transition-all px-3 py-1.5 text-[0.65rem] font-black text-white/60 hover:text-white"
+                      >
+                        <FiLogIn className="w-3 h-3" />
+                        Sign In
+                      </Link>
+                    </div>
+                  </form>
+                )}
+              </div>
+            </div>
+
           </div>
         </div>
       </section>
